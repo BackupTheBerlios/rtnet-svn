@@ -160,7 +160,7 @@ void tdma_task_config(int rtdev_id)
 		TDMA_DEBUG(4, "RTmac: tdma: "__FUNCTION__"() sending %d test packets to %u.%u.%u.%u\n",
 			   max, NIPQUAD(rt_entry->arp->ip_addr));
 
-		for (i = 0; i <= max; i++) {
+		for (i = 0; i < max; i++) {
 			if (!(rt_entry->state == RT_RCVD_CONF || rt_entry->state == RT_RCVD_TEST))
 				goto out;
 

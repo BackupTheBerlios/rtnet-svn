@@ -57,7 +57,7 @@ MODULE_PARM (sof_sync, "s");
 MODULE_PARM_DESC (local_ip_s, "rt_echo_client: lokal ip-address");
 MODULE_PARM_DESC (server_ip_s, "rt_echo_client: server ip-address");
 MODULE_PARM_DESC (cycle, "cycletime in us or sof counts");
-MODULE_PARM_DESC (sof_sync, "if not zero, synchronize with SOF. WORKS WITH RTMAC CLIENT ONLY!");
+MODULE_PARM_DESC (sof_sync, "device name, synchronize with its SOF. WORKS WITH RTMAC CLIENT ONLY!");
 
 #define TIMERTICKS	1000	// 1 us
 RT_TASK rt_task;
