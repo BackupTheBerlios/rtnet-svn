@@ -158,10 +158,12 @@ int init_module(void)
 
 
 
-void cleanup_modules(void)
+void cleanup_module(void)
 {
     rt_task_delete(&task);
     rt_sem_delete(&rx_sem);
 
     rt_socket_close(sock);
+
+    printk("worst-case synchronization jitter was: %lu us\n", max_jitter/1000);
 }
