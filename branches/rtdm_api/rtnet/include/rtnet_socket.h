@@ -3,10 +3,10 @@
  *  include/rtnet_socket.h
  *
  *  RTnet - real-time networking subsystem
- *  Copyright (C) 1999      Lineo, Inc
- *                1999,2002 David A. Schleef <ds@schleef.org>
- *                2002      Ulrich Marx <marx@kammer.uni-hannover.de>
- *                2003,2004 Jan Kiszka <jan.kiszka@web.de>
+ *  Copyright (C) 1999       Lineo, Inc
+ *                1999, 2002 David A. Schleef <ds@schleef.org>
+ *                2002       Ulrich Marx <marx@kammer.uni-hannover.de>
+ *                2003, 2004 Jan Kiszka <jan.kiszka@web.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,9 +27,7 @@
 #ifndef __RTNET_SOCKET_H_
 #define __RTNET_SOCKET_H_
 
-//#include <linux/init.h>
 #include <linux/list.h>
-//#include <linux/socket.h>
 
 #include <rtdev.h>
 #include <rtnet.h>
@@ -39,67 +37,45 @@
 #include <rtdm_driver.h>
 
 
-/*#define RT_SOCKETS          64*/  /* only increase with care (lookup delays!),
-                                 * must not be greater then 255 */
 #define RT_SOCK_NONBLOCK    RTDM_USER_CONTEXT_FLAG
 
 
-/*struct rtsocket_ops {
-    int  (*bind)        (struct rtsocket *s, struct sockaddr *my_addr,
-                         socklen_t addrlen);
-    int  (*connect)     (struct rtsocket *s, const struct sockaddr *serv_addr,
-                         socklen_t addrlen);
-    int  (*getsockname) (struct rtsocket *s, struct sockaddr *addr,
-                         socklen_t *addrlen);
-    int  (*listen)      (struct rtsocket *s, int backlog);
-    int  (*accept)      (struct rtsocket *s, struct sockaddr *addr,
-                         socklen_t *addrlen);
-    int  (*recvmsg)     (struct rtsocket *s, struct msghdr *msg,
-                         size_t total_len, int flags);
-    int  (*sendmsg)     (struct rtsocket *s, const struct msghdr *msg,
-                         size_t total_len, int flags);
-    int  (*close)       (struct rtsocket *s);
-    int  (*setsockopt)  (struct rtsocket *s, int level, int optname,
-                         const void *optval, socklen_t optlen);
-};*/
-
 struct rtsocket {
-//    struct list_head    list_entry;
+    unsigned short          protocol;
 
-    unsigned short      protocol;
+    struct rtskb_queue      skb_pool;
+    unsigned int            pool_size;
 
-    struct rtskb_queue  skb_pool;
-    unsigned int        pool_size;
+    struct rtskb_queue      incoming;
 
-    struct rtskb_queue  incoming;
+    rtos_spinlock_t         param_lock;
 
-    rtos_spinlock_t     param_lock;
+    volatile unsigned int   priority;
+    rtos_time_t             timeout;    /* receive timeout, 0 for infinite */
 
-    unsigned int        priority;
-    rtos_time_t         timeout;    /* receive timeout, 0 for infinite */
+    rtos_event_sem_t        wakeup_event; /* for blocking calls */
 
-    rtos_event_sem_t    wakeup_event; /* for blocking calls */
-
-    void                (*callback_func)(struct rtdm_dev_context *, void *arg);
-    void                *callback_arg;
+    void                    (*callback_func)(struct rtdm_dev_context *,
+                                             void *arg);
+    void                    *callback_arg;
 
     union {
         /* IP specific */
         struct {
-            u32         saddr;      /* source ip-addr (bind) */
-            u32         daddr;      /* destination ip-addr */
-            u16         sport;      /* source port */
-            u16         dport;      /* destination port */
+            u32             saddr;      /* source ip-addr (bind) */
+            u32             daddr;      /* destination ip-addr */
+            u16             sport;      /* source port */
+            u16             dport;      /* destination port */
 
-            int         reg_index;  /* index in port registry */
-            u8          tos;
-            u8          state;
+            int             reg_index;  /* index in port registry */
+            u8              tos;
+            u8              state;
         } inet;
 
         /* packet socket specific */
         struct {
             struct rtpacket_type packet_type;
-            int                  ifindex;
+            volatile int         ifindex;
         } packet;
     } prot;
 };
