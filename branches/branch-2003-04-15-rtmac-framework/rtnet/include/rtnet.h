@@ -228,6 +228,14 @@ struct rtnet_device {
 	int			(*rebuild_header)(struct rtskb *);
 	int			(*hard_start_xmit)(struct rtskb *skb,struct rtnet_device *dev);
 	int			(*hw_reset)(struct rtnet_device *rtdev);
+
+	struct rtskb_head	rt_tx_queue;
+	int			(*rt_xmit)(struct rtskb *skb);
+	int			(*rt_wakeup_xmit)(struct rtnet_device *rtdev);
+
+	struct rtskb_head	proxy_tx_queue;
+	int			(*proxy_xmit)(struct rtskb *skb);
+	int			(*proxy_wakeup_xmit)(struct rtnet_device *rtdev);
 };
 
 
