@@ -18,6 +18,12 @@
  */
  
 // $Log: ip_output.c,v $
+// Revision 1.7.2.1  2003/07/10 20:06:57  bet-frogger
+// updates to new rtnet release
+//
+// Revision 1.8  2003/05/27 09:50:41  kiszka
+// * applied new header file structure
+//
 // Revision 1.7  2003/05/17 19:28:11  hpbock
 // rt_ip_build_xmit():
 // deleted useless code
@@ -46,9 +52,11 @@
 
 #include <net/checksum.h>
 
-#include <rtnet.h>
-#include <rtnet_internal.h>
-#include <../rtmac/include/rtmac.h>
+#include <rtnet_socket.h>
+#include <ipv4/ip_input.h>
+#include <ipv4/route.h>
+#include <rtmac/rtmac_disc.h>
+
 
 static u16 rt_ip_id_count = 0;
 
@@ -135,13 +143,6 @@ no_rtskb:
 
 
 
-
-
-
-
-
-
-
 /***
  *	IP protocol layer initialiser
  */
@@ -173,4 +174,3 @@ void rt_ip_release(void)
 {
 	rtdev_remove_pack(&ip_packet_type);
 }
-

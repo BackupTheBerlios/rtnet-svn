@@ -23,8 +23,11 @@
  */
 
 
+#include <asm/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/in.h>
+
 
 #include <rtai.h>
 #include <rtai_sched.h>

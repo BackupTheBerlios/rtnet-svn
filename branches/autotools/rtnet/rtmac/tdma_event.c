@@ -25,11 +25,12 @@
 
 #include <rtai.h>
 
-#include <rtnet.h>
+#include <ipv4/arp.h>
+#include <rtmac/tdma/tdma_cleanup.h>
+#include <rtmac/tdma/tdma_event.h>
+#include <rtmac/tdma/tdma_task.h>
+#include <rtmac/tdma/tdma_timer.h>
 
-#include <rtmac.h>
-#include <tdma.h>
-#include <tdma_event.h>
 
 #define TIMERTICKS 1000 // 1 us // FIXME: needed?
 
@@ -972,10 +973,8 @@ static void tdma_master_rcvd_test_ack(struct rtmac_tdma *tdma, struct rtskb *skb
 	struct tdma_test_msg *test_ack = (struct tdma_test_msg *)skb->data;
 	struct tdma_rt_entry *rt_entry;
 	struct list_head *lh;
-	int max, rtt;
+	unsigned int rtt;
 
-	max = TDMA_MASTER_MAX_TEST;
-	
 	TDMA_DEBUG(6, "RTmac: tdma: %s() received test ack packet\n",__FUNCTION__);
 
 	/*
@@ -1018,7 +1017,7 @@ static void tdma_expired_master_sent_test(struct rtmac_tdma *tdma)
 	struct tdma_rt_entry *rt_entry, *compare_entry;
 	struct list_head *lh, *next, *lh_rate;
 	unsigned char station_list[TDMA_MAX_RT * sizeof(struct tdma_station_list)];
-	int max;
+	unsigned int max;
 
 	max = TDMA_MASTER_MAX_TEST;
 	
@@ -1060,7 +1059,7 @@ static void tdma_expired_master_sent_test(struct rtmac_tdma *tdma)
 					}
 				}
 				list_add_tail(&rt_entry->list_rate, &tdma->rt_list_rate);
-			cont:
+			cont:;
 			}
 
 
