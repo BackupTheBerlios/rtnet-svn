@@ -18,7 +18,7 @@ librtmac_a_SOURCES = \
 rtmac.o: librtmac.a
 	rm -rf .extract && mkdir .extract
 	cd .extract && $(AR) x ../$<
-	$(LD) -r -o $@ .extract/*.o $(RTNET_BUILTIN_OBJS)
+	$(LD) -r -o $@ .extract/*.o
 
 INCLUDES = \
 	@RTAI_KMOD_CFLAGS@ \

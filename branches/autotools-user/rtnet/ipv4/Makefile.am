@@ -14,7 +14,7 @@ libipv4_a_SOURCES = af_inet.c \
 ipv4.o: libipv4.a
 	rm -rf .extract && mkdir .extract
 	cd .extract && $(AR) x ../$<
-	$(LD) -r -o $@ .extract/*.o $(RTNET_BUILTIN_OBJS)
+	$(LD) -r -o $@ .extract/*.o
 
 INCLUDES = \
 	@RTAI_KMOD_CFLAGS@ \

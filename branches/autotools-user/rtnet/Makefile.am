@@ -30,3 +30,6 @@ INCLUDES = \
 	-I$(top_srcdir)/rtmac/include
 
 all-local: rtnet.o rtnetproxy.o
+
+clean-local:
+	rm -rf .extract
