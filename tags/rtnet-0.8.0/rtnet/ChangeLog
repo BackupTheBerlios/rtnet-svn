@@ -1,0 +1,195 @@
+0.8.0
+- TDMA-V2 implementation
+  * multiple slots
+  * packet delay compensation
+  * slave hot plugging
+  * backup masters
+- new NIC device driver layer
+  * atomic transmission time stamp
+  * improved locking scheme
+  * layer version tag
+- kernel 2.6 support
+- RTAI/fusion support (0.6.6 or better)
+- source tree reorganisation
+- added NoMAC module as skeleton for new disciplines
+- revised and extended rtnet start script
+- worst-case statistics for rtping
+- read stage 1 data for "rtcfg add" from stdin
+- fixed cleanup bug in RTmac's VNIC handling
+- bug fixes in RTcfg, /proc output, legacy tdma-v1, and some other parts
+
+0.7.1
+- extended RTcfg
+  * heartbeat support for clients
+  * client failure detection and notification
+  * server restart after failures
+  * IP assignment to clients based on HW addresses
+  * verbose /proc interface
+- clean up loopback route when non-loopback interface goes down or changes ip
+
+0.7.0
+- ported user API to RTDM (real-time driver model)
+- revised TDMA API based on RTDM
+- revised routing system
+  * hash-table-based lookups
+  * removed redundant ARP table
+  * added network routing and forwarding support
+  * loopback routes for non-loopback device IPs
+  * lock protection
+- added rtroute
+- revised rtifconfig
+- added rtping core support and user tool
+- reordered and extended /proc interface
+- improved non-real-time locking (devices and various lists)
+- lock protection of variable socket parameters
+- added netshm example
+- reorganised and cleaned up examples directory
+- fixed UDP port demultiplexing bug
+- fixed return value of non-blocking receive on empty queue
+- fixed queue clean-up bug in packet sockets
+- fixed bug in RTcfg frames on big endian platforms (PPC)
+
+0.6.2
+- removed runtime garbage collection of fragmented IP packets
+- added "cards" parameter to tulip-rt
+- revised automatic UDP port number assigment
+- added ip address evaluation to UDP port lookup
+- added SMC91111 driver
+- fixed routing bug in IP input path
+- fixed bug in timeout handling of recvmsg functions
+- fixed application unload problems when running RTcap
+- fixed init bug in rtnetproxy
+- avoid stack manager for loopback packets
+- fixed compilation problem with RTAI-24 and ADEOS
+- fixed some smaller issues in the build system
+
+0.6.1
+- improved RTcfg
+  * added stage 1/2 file support
+  * added ready mechanism
+  * native send/receive using rtskbs
+  * fixed several bugs
+- revised rtnet start script with full RTmac/TDMA and RTcfg support
+- added real-time capturing support RTcap
+- device promisc flag settable on rtifconfig up
+- improved TDMA
+  * set slot offset with rtifconfig mac add
+  * transmit slot offset before first SOF
+  * queue outgoing packets before first SOF (instead of dropping them)
+  * bug fix: send further offset commands synchronously
+- fixed some bugs in the build system
+- bug fix: solved re-enable irq issue on PPC (new abstraction rtos_irq_end)
+- bug fix: UDP receive didn't work with MSG_PEEK flag
+- bug fix: packet sockets didn't set transmission priority
+- further minor bug fixes
+
+0.6.0
+- improved build system
+  * RTAI 3.0 support
+  * make install covers modules, tools, and API headers
+- Added support for NatSemi DP8381x NICs
+- separated TDMA discipline module
+- upgraded RTcfg setup to new rtcfg tool
+- improved rtifconfig
+- added generic getsockname implementation
+- introduced abstraction layer for the Linux RT extension
+- new internal services
+  * extensible IOCTL interface through a single misc device
+  * unified sychronous real-time procedure calls from Linux context
+- fixed route solicit IOCTL
+- as usual: fixed some minor bugs
+
+0.5.6
+- Added first version of RTcfg
+- improved loopback-rt throughput
+- fixed cleanup of LXRT examples
+- fixed several tiny bugs
+
+0.5.5
+- Revised IP fragmentation/defragmentation engine
+- Added packet sockets (incl. example)
+- Memory allocation for rtskbs based on a Linux slab cache (again...)
+- Introduced rt_socket_ioctl
+  * lists IPs of available interfaces
+  * reports the interface flags
+- Updated PPC drivers
+- Added support for VIA Rhine NICs
+- Fixed LXRT interface and examples
+- Fixed cross-compilation issues
+- Improved socket file descriptor lookup
+- Discontinued static socket interfaces
+- Revised device driver layer (index-based management)
+- Fixed race conditions on socket close
+- Added/updated the documentation
+- Added/updated examples
+
+0.5.0
+- Introduced Virtual NIC support for RTmac (allows e.g. TCP/IP tunnelling
+  without any influence on real-time traffic)
+- New config and make system (stand-alone compilation outside the RTAI tree
+  possible)
+- Improved buffer pool management (avoids memory shortages if, e.g., an
+  application fails to retrieve all its incoming data on time)
+- Prioritised send queues in RTmac (31 real-time priorities, 1 for non
+  real-time packets)
+- Bindless send (sending packets without the need to bind to a specific
+  interface)
+- Receive calls are now blocking by default (non-blocking selectable with
+  sockopts)
+- Added support for AMD PCnet32/PCnetPCI network adapters
+- Added early version of a driver porting guide
+- As usual: various minor bug fixes
+
+0.2.10
+- New device naming sheme, internal modification of the driver layer (fixes bug
+  680211)
+- Fixed loopback-rt
+- New RTmac frame format
+- Internal improvements of RTmac
+- Added UDP fragmentation, see included README.ipfragmentation - Mathias
+  Koehrer
+- New header file ordering, see include/INCLUDE.policy
+- Various minor bug fixes...
+
+0.2.9
+- Fixed many memory leak bugs - Hans-Peter Bock
+- OpenOffice document 'structure of RTnet 0.2.8' - Hans-Peter Bock
+- Fixed negative module reference count bug in RTmac - Wittawat Yamwong
+- RTmac deletes the master and client task correcly now - Wittawat Yamwong
+
+0.2.8
+- enhanched round_trip_time example - Hans-Peter Bock
+  * configurable send intervall
+  * configurable packetsize
+  * accounting of sent and received packets
+  * exact roundtrip time in us
+  * showtime displays minimum/maximum roundtrip time
+- Added rt_ip_setsockopt() for IP_TOS
+- Added experimental tulip driver - Wittawat Yamwong
+- Added rtnetproxy - Mathias Koehrer
+
+0.2.7
+- added new example (rtt), another round trip time example, without
+  the bug of the old one, causing equal time.
+- added support for 'Latency Measurement Gadget' in rtt example
+- added sending broadcasts funtionality
+
+0.2.6:
+- added ICMP protocoll (now your rtai-box replies to pings)
+- fixed bug in rt_ip_route_output (outgoing packets to unknown hosts)
+- beautified ARP: answering an ARP request now makes a local ARP entry
+- improved performance of 3c59x-rt by removing forgotten debug outputs
+- improved performance of udp layer by removing forgotten debug outputs
+- added start/stop script (tools/rtnet)
+
+0.2.5:
+- added real-time driver 3c59x-rt (3Com EtherLink PCI III/XL)
+- fixed synchronization in socket.c und ipv4/udp.c (it is now save to
+  create rt-sockets both in RTAI task and Linux context)
+- fixed cleanup-bug in routing tables
+
+0.2.4:
+- added "cards" parameter to drivers to limit the number of supported
+  identical NICs (allows both RT and non-RT driver of equal type to be
+  loaded at the same time)
+- renaming: eepro100_rt -> eepro100-rt
