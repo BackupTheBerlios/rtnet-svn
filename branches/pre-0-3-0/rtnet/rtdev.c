@@ -28,8 +28,8 @@
 #include <rtnet.h>
 #include <rtnet_internal.h>
 
-struct rtnet_device *rtnet_devices;
-rwlock_t rtnet_devices_lock;
+struct rtnet_device *rtnet_devices = NULL;
+rwlock_t rtnet_devices_lock = RW_LOCK_UNLOCKED;
 struct rtpacket_type *rt_packets[MAX_RT_PROTOCOLS];
 
 
