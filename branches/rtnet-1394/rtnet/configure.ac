@@ -998,6 +998,21 @@ AC_MSG_RESULT([${CONFIG_RTNET_LOOPBACK}])
 AM_CONDITIONAL(CONFIG_RTNET_LOOPBACK,[test "$CONFIG_RTNET_LOOPBACK" = "yes"])
 
 
+dnl =====================================================================
+dnl 		Firewire(1394) interface card
+dnl =====================================================================
+AC_MSG_CHECKING([whether to build firewire interface driver])
+AC_ARG_ENABLE(firewire,
+	AS_HELP_STRING([--enable-firewire], [build firewire driver @<:@default=no@:>@]),
+	[case "$enableval" in
+	y | yes) CONFIG_RTNET_FIREWIRE=yes ;;
+	*) CONFIG_RTNET_FIREWIRE=no ;;
+	esac],
+	[CONFIG_RTNET_FIREWIRE=no])
+AC_MSG_RESULT([${CONFIG_RTNET_FIREWIRE}])
+AM_CONDITIONAL(CONFIG_RTNET_FIREWIRE, [test "$CONFIG_RTNET_FIREWIRE" = "yes"])
+
+
 dnl ======================================================================
 dnl		RTcfg
 dnl ======================================================================
@@ -1278,6 +1293,7 @@ if test x$CONFIG_KBUILD = xy; then
 	drivers/tulip \
 	drivers/via-rhine \
         drivers/experimental/3c59x \
+        drivers/experimental/firewire\
 	\
 	rtai_rtdm \
 	\
@@ -1341,6 +1357,7 @@ AC_CONFIG_FILES([ \
     drivers/via-rhine/GNUmakefile \
     drivers/experimental/GNUmakefile \
     drivers/experimental/3c59x/GNUmakefile \
+    drivers/experimental/firewire/GNUmakefile\
     \
     rtai_rtdm/GNUmakefile \
     \

@@ -1887,7 +1887,7 @@ vortex_open(struct rtnet_device *rtdev)
 	int i;
 	int retval;
 
-	RTNET_MOD_INC_USE_COUNT;
+	MOD_INC_USE_COUNT;
 
 	// *** RTnet ***
 	rt_stack_connect(rtdev, &STACK_manager);
@@ -1947,7 +1947,7 @@ out_free_irq:
 	rt_stack_disconnect(rtdev);
 	// *** RTnet ***
 out:
-	RTNET_MOD_DEC_USE_COUNT;
+	MOD_DEC_USE_COUNT;
 	if (vortex_debug > 1)
 		printk(KERN_ERR "%s: vortex_open() fails: returning %d\n", rtdev->name, retval);
 	return retval;
@@ -2515,7 +2515,9 @@ handler_exit:
 	rtos_irq_end(rtdev->irq);
 	rtos_spin_unlock(&vp->lock);
 	if (packets > 0)
+		rtos_print(KERN_INFO "before marking event semaphore\n");
 		rt_mark_stack_mgr(rtdev);
+		rtos_print(KERN_INFO "after marking event semaphore\n");
 	return;
 }
 
@@ -2965,7 +2967,7 @@ vortex_close(struct rtnet_device *rtdev)
 		}
 	}
 
-	RTNET_MOD_DEC_USE_COUNT;
+	MOD_DEC_USE_COUNT;
 
 	return 0;
 }
