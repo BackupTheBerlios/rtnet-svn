@@ -248,6 +248,34 @@ void rtdev_free (struct rtnet_device *rtdev)
 
 
 /***
+ *	basic_rt_xmit
+ *
+ *	Standard function for rt_xmit() hook.
+ *
+ *	This is the wrong place for this function!
+ */
+
+int basic_rt_xmit(struct rtskb *skb) {
+	return rtdev_xmit(skb);
+}
+
+
+
+/***
+ *	basic_proxy_xmit
+ *
+ *	Standard function for proxy_xmit() hook.
+ *
+ *	This is the wrong place for this function!
+ */
+
+int basic_proxy_xmit(struct rtskb *skb) {
+	return rtdev_xmit(skb);
+}
+
+
+
+/***
  *	rtdev_open
  *
  *	Prepare an interface for use. 
@@ -264,6 +292,14 @@ int rtdev_open(struct rtnet_device *rtdev)
   		ret = rtdev->open(rtdev);
 
 	if ( !ret )  {
+		memset(&(rtdev->rt_tx_queue), 0, sizeof(struct rtskb_head));
+		rtdev->rt_xmit = basic_rt_xmit;
+		rtdev->rt_wakeup_xmit = 0;
+
+		memset(&(rtdev->proxy_tx_queue), 0, sizeof(struct rtskb_head));
+		rtdev->proxy_xmit = basic_proxy_xmit;
+		rtdev->proxy_wakeup_xmit = 0;
+		
 		dev->flags |= (IFF_UP | IFF_RUNNING);
 		set_bit(__LINK_STATE_START, &dev->state);
 #if 0
@@ -336,8 +372,10 @@ int rtdev_xmit_if(struct rtskb *skb)
 	if ( rtdev && rtdev->hard_start_xmit ) {
 		ret=rtdev->hard_start_xmit(skb, rtdev);
 	}
-	if ( ret ) 
+	if (ret) {
 		rt_printk("xmit_if returned %d not 0\n",ret);
+		if (skb) kfree_rtskb(skb); /* not really nice workaround to avoid memory leaks */
+	}
 
 	return (ret);
 }
