@@ -218,6 +218,7 @@ void tdma_task_master(int rtdev_id)
 	struct rtmac_tdma *tdma = (struct rtmac_tdma *)rtmac->priv;
 	struct rtskb *skb;
 	void *data;
+	RTIME time_stamp;
 
 	while (tdma->flags.shutdown_task == 0) {
 		/*
@@ -235,9 +236,18 @@ void tdma_task_master(int rtdev_id)
 		rt_task_wait_period();
 	
 		/* Store timestamp in SOF. I assume that there is enough space. */
-		*(RTIME *)data = rt_get_time_ns();
+		time_stamp = rt_get_time_ns();
+		*(RTIME *)data = time_stamp;
 
 		rtmac->packet_tx(skb, skb->rtdev);
+
+		/* Calculate delta_t for the master by assuming the current
+		 * to be the virtual receiption time. Then inform all listings 
+		 * tasks that the SOF has been sent.
+		 * -JK-
+		 */
+		tdma->delta_t = time_stamp-rt_get_time_ns();
+		rt_sem_broadcast(&tdma->client_tx);
 	
 		/*
 		 * get client skb out of queue and send it
