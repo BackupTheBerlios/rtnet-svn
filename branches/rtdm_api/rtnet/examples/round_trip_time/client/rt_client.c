@@ -51,6 +51,8 @@ MODULE_PARM_DESC(local_ip_s, "rt_echo_client: local ip-address");
 MODULE_PARM_DESC(server_ip_s, "rt_echo_client: server ip-address");
 MODULE_PARM_DESC(start_timer, "set to non-zero to start scheduling timer");
 
+MODULE_LICENSE("GPL");
+
 #define TICK_PERIOD     100000
 RT_TASK rt_task;
 

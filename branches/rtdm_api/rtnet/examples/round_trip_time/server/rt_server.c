@@ -46,6 +46,8 @@ MODULE_PARM (client_ip_s,"s");
 MODULE_PARM_DESC (local_ip_s, "local ip-addr");
 MODULE_PARM_DESC (client_ip_s, "client ip-addr");
 
+MODULE_LICENSE("GPL");
+
 #define RCV_PORT	36000
 #define SRV_PORT	35999
 
