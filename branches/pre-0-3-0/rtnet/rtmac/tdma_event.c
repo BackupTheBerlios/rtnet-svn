@@ -900,8 +900,6 @@ static int tdma_master_request_up(struct rtmac_tdma *tdma)
 		tdma_send_conf(tdma, arp_entry->hw_addr, station);
 
 		station++;
-
-		rt_busy_sleep(100000);
 	}
 
 	/*
@@ -1033,7 +1031,7 @@ static void tdma_expired_master_sent_test(struct rtmac_tdma *tdma)
 		/*
 		 * have we received _all_ acks for our test packes? 
 		 */
-		if (rt_entry->state == RT_RCVD_TEST && rt_entry->counter == max) {
+		if (rt_entry->state == RT_RCVD_TEST && rt_entry->counter >= max-1) {
 			rt_printk("RTmac: tdma: station %d, IP %u.%u.%u.%u, max rtt %d us\n",
 				  rt_entry->station, NIPQUAD(rt_entry->arp->ip_addr), (rt_entry->rtt+500)/1000);
 
