@@ -29,9 +29,12 @@ LIBS="$KSAVE_LIBS"
 
 # Checks for libraries.
 # FIXME: Replace `main' with a function in `-llxrt':
-AC_CHECK_LIBRARY([lxrt], [main], LXRT_LIBS)
+AC_CHECK_LIBRARY(lxrt, main, LXRT_LIBS)
+AC_SUBST(LXRT_LIBS)
+
 # FIXME: Replace `main' with a function in `-lncurses':
 AC_CHECK_LIBRARY(ncurses, main, NCURSES_LIBS)
+AC_SUBST(NCURSES_LIBS)
 
 # Checks for header files.
 AC_HEADER_STDC
@@ -164,6 +167,7 @@ examples/Makefile \
 examples/round_trip_time/Makefile \
 examples/round_trip_time/client/Makefile \
 examples/round_trip_time/server/Makefile \
+examples/rtnet_lxrt/Makefile \
 examples/rtskb_alloc/Makefile \
 examples/rtt/Makefile \
 driver/Makefile \
