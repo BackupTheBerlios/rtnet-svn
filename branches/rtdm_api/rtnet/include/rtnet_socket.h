@@ -27,6 +27,7 @@
 #ifndef __RTNET_SOCKET_H_
 #define __RTNET_SOCKET_H_
 
+#include <asm/atomic.h>
 #include <linux/list.h>
 
 #include <rtdev.h>
@@ -44,7 +45,7 @@ struct rtsocket {
     unsigned short          protocol;
 
     struct rtskb_queue      skb_pool;
-    unsigned int            pool_size;
+    atomic_t                pool_size;
 
     struct rtskb_queue      incoming;
 
