@@ -41,7 +41,7 @@ MODULE_PARM_DESC(debug,"debug level: 0 nodebug, 1 debug");
 
 static struct rtos_tasklet_scheduler *scheduler;
 
-static void rtos_tasklet_schedule(struct tasklet_struct *tasklet)
+void rtos_tasklet_schedule(struct tasklet_struct *tasklet)
 {
 	if (!scheduler->tasklet_queue.head)
 	{
@@ -55,12 +55,12 @@ static void rtos_tasklet_schedule(struct tasklet_struct *tasklet)
 	tasklet->next=NULL;
 }
 
-static void rtos_trigger_bh()
+void rtos_trigger_bh(void)
 {
 	rtos_event_sem_signal(&scheduler->sem);
 }
 
-static void do_schedulertask()
+void do_schedulertask(void)
 {
 	struct tasklet_struct *tasklet;
 	unsigned long flags;
@@ -99,14 +99,14 @@ static void do_schedulertask()
 }
 
 
-int rtos_tasklet_scheduler_init()
+static int __init rtos_tasklet_scheduler_init(void)
 {
 
 	scheduler=kmalloc(sizeof(struct rtos_tasklet_scheduler),GFP_KERNEL);
 	if(!scheduler)
 	{
-		rtos_print(KERN_INFO,"rtos tasklet sheduler allocatoin failed!!!\n");
-		return;
+		rtos_print("rtos tasklet sheduler allocatoin failed!!!\n");
+		return -ENOMEM;
 	}
 
 	/*initialize the tasklet queue*/
@@ -122,7 +122,7 @@ int rtos_tasklet_scheduler_init()
                           priority);
 }
 
-static void rtos_tasklet_scheduler_exit()
+static void __exit rtos_tasklet_scheduler_exit(void)
 {
 	rtos_task_delete(&scheduler->task);
 	rtos_event_sem_delete(&scheduler->sem);

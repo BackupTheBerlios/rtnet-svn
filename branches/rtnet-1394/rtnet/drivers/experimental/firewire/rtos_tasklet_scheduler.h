@@ -29,8 +29,6 @@ struct rtos_tasklet_scheduler {
 	rtos_task_t task;
 };
 
-static void rtos_tasklet_schedule(struct tasklet_struct *tasklet);
+extern void rtos_tasklet_schedule(struct tasklet_struct *tasklet);
 
-int rtos_tasklet_scheduler_init();
-
-static void rtos_tasklet_scheduler_exit();
+extern void rtos_trigger_bh(void);

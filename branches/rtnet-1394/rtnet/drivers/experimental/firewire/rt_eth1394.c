@@ -470,11 +470,9 @@ static int ether1394_add_host (struct hpsb_host *host)
 	
 
 	if (rtskb_pool_init(&priv->skb_pool, RX_RING_SIZE*2) < RX_RING_SIZE*2) {
-    retval=-ENOMEM;
-    goto free_pool;
-    //rtskb_pool_release(&priv->skb_pool);
-		//rtdev_free(dev);
-		//return -ENOMEM;
+    		retval=-ENOMEM;
+    		goto free_pool;
+
 	}
 	
 
@@ -496,15 +494,18 @@ static int ether1394_add_host (struct hpsb_host *host)
 		goto free_hi;
         }
         
-	if (retval=rt_register_rtnetdev(dev)) {
+	retval=rt_register_rtnetdev(dev);
+	
+	if(retval) 
+	{
 		ETH1394_PRINT (KERN_ERR, dev->name, "Error registering network driver\n");
-    goto free_hi;
+    		goto free_hi;
 	}
 
 	ETH1394_PRINT (KERN_ERR, dev->name, "IEEE-1394 IPv4 over 1394 Ethernet (%s)\n",
 		       host->driver->name);
 
-  hi->host = host;
+ 	hi->host = host;
 	hi->dev = dev;
 	
 	ether1394_reset_priv (dev, 1);
@@ -665,7 +666,7 @@ static void ether1394_header_cache_update(struct hh_cache *hh,
 
 static int ether1394_mac_addr(struct rtnet_device *dev, void *p)
 {
-	if (netif_running(dev))
+	if (rtnetif_running(dev))
 		return -EBUSY;
 
 	/* Not going to allow setting the MAC address, we really need to use
@@ -938,7 +939,7 @@ static inline void purge_partial_datagram(struct list_head *old)
 		kfree(fi);
 	}
 	list_del(old);
-	kfree_skb(pd->skb);
+	kfree_rtskb(pd->skb);
 	kfree(pd);
 }
 

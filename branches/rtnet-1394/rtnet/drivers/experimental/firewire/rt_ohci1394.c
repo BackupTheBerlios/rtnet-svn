@@ -184,10 +184,8 @@ rtos_print(level "%s: " fmt "\n" , OHCI1394_DRIVER_NAME , ## args)
 rtos_print(level "%s_%d: " fmt "\n" , OHCI1394_DRIVER_NAME, card , ## args)
 
 
-static unsigned long long latency;
 
 //********** RTnet *********
-static struct rtos_tasklet_scheduler *tasklet_scheduler;
 #define TASKLET_SCHED_PRI 1
 
 
@@ -3619,10 +3617,8 @@ static void ohci1394_pci_remove(struct pci_dev *pdev)
 		ohci_soft_reset(ohci);
 		//free_irq(ohci->dev->irq, ohci);
 		/*change for real time*/
-		int temp;
 		
-		if ((temp=rtos_irq_free(ohci->dev->irq))<0 )
-		return temp;
+		rtos_irq_free(ohci->dev->irq);
 		
 	case OHCI_INIT_HAVE_TXRX_BUFFERS__MAYBE:
 		/* Free AR dma */

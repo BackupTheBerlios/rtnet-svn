@@ -527,7 +527,7 @@ int highlevel_read(struct hpsb_host *host, int nodeid, void *data,
 int highlevel_write(struct hpsb_host *host, int nodeid, int destid,
 		    void *data, u64 addr, unsigned int length, u16 flags)
 {
-        printk("highlevel_write: %08X\n",*(quadlet_t *)data);
+        //printk("highlevel_write: %08X\n",*(quadlet_t *)data);
 	struct hpsb_address_serve *as;
         struct list_head *entry;
         unsigned int partlength;
