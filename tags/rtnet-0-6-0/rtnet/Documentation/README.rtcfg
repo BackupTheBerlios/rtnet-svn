@@ -1,0 +1,25 @@
+                                    RTcfg
+                                    =====
+                            (Preliminary Version)
+
+The Real-Time Configuration Service (RTcfg) provides a mechanism to start up
+RTnet nodes synchronously. It implements a rendezvous during the RTnet start
+up process, exchanges MAC addresses and optionally IP routes, and will
+distribute configuration data to all stations (not implemented yet).
+
+RTcfg consists of a kernel module which can either be configured to run as a
+server or a client. The server takes a list of all expected stations in the
+network and waits for them to come up while broadcasting invitation messages to
+the clients. The clients wait for the invitation, then exchange the configuration
+with the server, and wait for all other clients to start up.
+
+
+Usage
+-----
+
+RTcfg is now configured using the rtcfg tool. Please refer to RTcfg.spec for
+its usage and an example. File exchange is not yet implemented, some parameters
+may not be functional. Sorry, this all is work-in-progress. Stay tuned!
+
+
+January 2004, Jan Kiszka <jan.kiszka-at-web.de>

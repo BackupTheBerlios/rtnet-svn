@@ -1,0 +1,160 @@
+#!/bin/sh
+#
+# A simple script for loading/unloading RTnet and RTmac
+#
+
+RTNETCFG=/etc/rtnet.conf
+
+# The following values are set in the configuration file:
+#  - RT_DRIVER
+#  - DEV
+#  - VNIC
+#  - NETMASK
+#  - IPADDR
+#  - ARP_PREFIX
+#  - ARP_LIST
+
+usage_rtnet() {
+	cat << EOF
+Usage:
+	$0 {start|up}
+	$0 arp
+	$0 mac ...
+	$0 proxy ...
+	$0 {stop|down}
+EOF
+}
+
+usage_rtmac() {
+	cat << EOF
+Usage:
+	On client side:
+	$0 mac client
+	(...run your application...)
+	$0 mac {down|stop}
+
+	On master side:
+	$0 mac master <cycle/us> [mtu/bytes]
+	$0 mac add <ip> [<ip> ...]
+	$0 mac up
+	$0 mac offset <ip> <offset/us>
+	(...run your applications...)
+	$0 mac {down|stop}
+EOF
+}
+
+usage_proxy() {
+	cat << EOF
+Usage:
+	$0 {start|up}
+	$0 {stop|down}
+EOF
+}
+
+if [ -r $RTNETCFG ]; then
+	. $RTNETCFG
+else
+	echo "Could not read $RTNETCFG"
+	exit 1
+fi
+
+ADD_MODULES="rtai_fifos"
+
+case "$1" in
+    start|up)
+	modprobe $RT_DRIVER || exit 1
+	for MODULE in $ADD_MODULES; do
+	    modprobe $MODULE
+	done
+
+	rtifconfig $DEV up $IPADDR netmask $NETMASK
+
+	;;
+
+    arp)
+	for i in $ARP_LIST; do
+	    rtifconfig $DEV route solicit $ARP_PREFIX.$i
+	done
+
+	echo "*** ARP table"
+	cat /proc/rtai/arp
+	echo
+	echo "*** routing table"
+	cat /proc/rtai/route
+
+	;;
+
+    stop|down)
+	rtifconfig $DEV down
+	for MODULE in $ADD_MODULES; do
+	    rmmod -r $MODULE
+	done
+	rmmod -r $RT_DRIVER
+
+	;;
+
+    mac)
+	case "$2" in
+	    master)
+		modprobe tdma
+		rtifconfig $DEV mac master $3 $4
+		ifconfig $VNIC up $IPADDR netmask $NETMASK
+		;;
+
+	    client)
+		modprobe tdma
+		rtifconfig $DEV mac client
+		ifconfig $VNIC up $IPADDR netmask $NETMASK
+		;;
+
+	    add)
+		shift 2
+		for i in $* ; do
+			echo Add $i
+			rtifconfig $DEV mac add $i
+		done
+		;;
+
+	    up)
+		rtifconfig $DEV mac up
+		;;
+
+	    down|stop)
+		ifconfig $VNIC down
+		rtifconfig $DEV mac down
+		rmmod tdma
+		rmmod rtmac
+		;;
+
+	    offset)
+		rtifconfig $DEV mac offset $3 $4
+		;;
+
+	    *)
+		usage_rtmac
+		exit 1
+		;;
+	esac
+	;;
+
+    proxy)
+	case "$2" in
+	    up|start)
+		modprobe rtnetproxy && ifconfig rtproxy up $IPADDR
+		;;
+	    down|stop)
+		ifconfig rtproxy down
+		rmmod rtnetproxy
+		;;
+	    *)
+		usage_proxy
+		exit 1
+	esac
+	;;
+
+    *)
+	usage_rtnet
+	exit 1
+esac
+
+exit 0
