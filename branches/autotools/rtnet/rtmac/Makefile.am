@@ -26,3 +26,6 @@ INCLUDES = \
 	-I$(top_srcdir)/rtmac/include
 
 all-local: rtmac.o
+
+clean-local:
+	rm -rf .extract

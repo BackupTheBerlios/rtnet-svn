@@ -16,3 +16,6 @@ rt_client.o: librt_client.a
 showtime_LDADD = $(NCURSES_LIBS)
 
 all-local: rt_client.o showtime
+
+clean-local:
+	rm -rf .extract

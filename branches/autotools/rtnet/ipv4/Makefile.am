@@ -21,3 +21,6 @@ INCLUDES = \
 	-I$(top_srcdir)/include
 
 all-local: ipv4.o
+
+clean-local:
+	rm -rf .extract
