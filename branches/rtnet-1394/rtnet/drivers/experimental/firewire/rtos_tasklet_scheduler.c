@@ -31,6 +31,9 @@ static int debug=0;
 if(debug)\
 rtos_print(KERN_INFO "rtos_tasklet_scheduler:" fmt,## args);\
 
+#define TASKLETS_NOT_FINISHED 1
+#define SCHED_IS_RUNNING 1
+
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Zhang Yuchen (y.zhang-4@student.utwente.nl)");
@@ -43,6 +46,9 @@ static struct rtos_tasklet_scheduler *scheduler;
 
 void rtos_tasklet_schedule(struct tasklet_struct *tasklet)
 {
+	//to prevent concurrent access from other cpus in SMP system
+	rtos_spin_lock(&scheduler->tasklet_queue.lock);
+		
 	if (!scheduler->tasklet_queue.head)
 	{
 		scheduler->tasklet_queue.head=tasklet;
@@ -53,6 +59,8 @@ void rtos_tasklet_schedule(struct tasklet_struct *tasklet)
 	scheduler->tasklet_queue.last=tasklet;
 	}
 	tasklet->next=NULL;
+	
+	rtos_spin_unlock(&scheduler->tasklet_queue.lock);
 }
 
 void rtos_trigger_bh(void)
@@ -66,26 +74,27 @@ void do_schedulertask(void)
 	unsigned long flags;
 
 	PRINT("rtos_tasklet_scheduler started!\n");
-	while(1){
-    PRINT("in the loop\n");
-    rtos_event_sem_wait(&scheduler->sem);
+	do{
+    	PRINT("in the loop\n");
+    	rtos_event_sem_wait(&scheduler->sem);
 		PRINT("semaphore released\n");
-		while(1){
+		do{
 			rtos_spin_lock_irqsave(&scheduler->tasklet_queue.lock, flags);
-			/*fetch the tasklet from tasklet_queue*/
+			/*fetch the tasklet from head of tasklet_queue*/
 			tasklet=scheduler->tasklet_queue.head;
 
 			if(tasklet==NULL)
 			{
 				PRINT("NULL pointer to tasklet!!!\n");
 				rtos_spin_unlock_irqrestore(&scheduler->tasklet_queue.lock, flags);
-				break;
+				goto waitforsem;
 			}
-			rtos_spin_unlock_irqrestore(&scheduler->tasklet_queue.lock,flags);
-
-			/*update the head pointer to next tasklet*/
+			
+			/*point the head to next tasklet*/
 			scheduler->tasklet_queue.head=tasklet->next;
-
+			
+			rtos_spin_unlock_irqrestore(&scheduler->tasklet_queue.lock,flags);
+			
 			/*execute the function of tasklet*/
 			tasklet->func(tasklet->data);
 
@@ -94,8 +103,9 @@ void do_schedulertask(void)
 				rtos_print(KERN_INFO "no more tasklet in queue\n");
 				break;
 			}*/
-		}
-	}
+		}while(TASKLETS_NOT_FINISHED);
+waitforsem:	
+	}while(SCHED_IS_RUNNING);
 }
 
 
