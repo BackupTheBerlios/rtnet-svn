@@ -3,8 +3,8 @@
 
 #AC_PREREQ(2.57)
 AC_INIT(RTnet)
-AM_INIT_AUTOMAKE(RTnet, 0.2.10.pre1, jan.kiszka@web.de)
-AC_PREFIX_DEFAULT(/usr/local/rtmac)
+AM_INIT_AUTOMAKE(RTnet, 0.2.10, jan.kiszka@web.de)
+AC_PREFIX_DEFAULT(/usr/local/rtnet)
 
 AC_CONFIG_SRCDIR([iovec.c])
 AM_CONFIG_HEADER(config/config.h)
