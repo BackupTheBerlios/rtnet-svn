@@ -64,7 +64,7 @@
 };*/
 
 struct rtsocket {
-    struct list_head    list_entry;
+//    struct list_head    list_entry;
 
     unsigned short      protocol;
 
@@ -88,10 +88,10 @@ struct rtsocket {
         struct {
             u32         saddr;      /* source ip-addr (bind) */
             u32         daddr;      /* destination ip-addr */
-            u16         auto_port;  /* automatically assigned port number */
             u16         sport;      /* source port */
             u16         dport;      /* destination port */
 
+            int         reg_index;  /* index in port registry */
             u8          tos;
             u8          state;
         } inet;

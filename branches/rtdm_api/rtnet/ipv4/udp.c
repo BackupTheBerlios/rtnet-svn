@@ -2,9 +2,9 @@
  *
  *  ipv4/udp.c - UDP implementation for RTnet
  *
- *  Copyright (C) 1999,2000 Zentropic Computing, LLC
- *                2002 Ulrich Marx <marx@kammer.uni-hannover.de>
- *                2003,2004 Jan Kiszka <jan.kiszka@web.de>
+ *  Copyright (C) 1999, 2000 Zentropic Computing, LLC
+ *                2002       Ulrich Marx <marx@kammer.uni-hannover.de>
+ *                2003, 2004 Jan Kiszka <jan.kiszka@web.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -42,28 +42,37 @@
 
 
 /***
- *  udp_sockets
- *  the registered sockets from any server
+ *  This structure is used to register a UDP socket for reception. All
+ +  structures are kept in the port_registry array to increase the cache
+ *  locality during the critical port lookup in rt_udp_v4_lookup().
  */
-LIST_HEAD(udp_sockets);
-static rtos_res_lock_t  udp_socket_base_lock;
+struct udp_socket {
+    u16             sport;      /* local port */
+    u16             __padding;
+    u32             saddr;      /* local ip-addr */
+    struct rtsocket *sock;
+};
 
 /***
  *  Automatic port number assignment
+
  *  The automatic assignment of port numbers to unbound sockets is realised as
  *  a simple addition of two values:
  *   - the socket ID (lower 8 bits of file descriptor) which is set during
  *     initialisation and left unchanged afterwards
  *   - the start value auto_port_start which is a module parameter
+
  *  auto_port_mask, also a module parameter, is used to define the range of
  *  port numbers which are used for automatic assignment. Any number within
- *  this range be rejected when passed to rt_bind(). This restriction allows a
- *  lock-free implementation of the port assignment.
+ *  this range will be rejected when passed to bind_rt().
+
  */
-static unsigned int     auto_port_start = 1024;
-static unsigned int     auto_port_mask  = ~(RT_UDP_SOCKETS-1);
-int                     free_ports      = RT_UDP_SOCKETS;
-static u32              port_bitmap[(RT_UDP_SOCKETS + 31) / 32];
+static unsigned int         auto_port_start = 1024;
+static unsigned int         auto_port_mask  = ~(RT_UDP_SOCKETS-1);
+static int                  free_ports      = RT_UDP_SOCKETS;
+static u32                  port_bitmap[(RT_UDP_SOCKETS + 31) / 32];
+static struct udp_socket    port_registry[RT_UDP_SOCKETS];
+static rtos_spinlock_t  udp_socket_base_lock;
 
 MODULE_PARM(auto_port_start, "i");
 MODULE_PARM(auto_port_mask, "i");
@@ -75,6 +84,7 @@ MODULE_PARM_DESC(auto_port_mask,
 /***
  *  rt_udp_v4_lookup
  */
+#if 0
 struct rtsocket *rt_udp_v4_lookup(u32 daddr, u16 dport)
 {
     struct list_head *entry;
@@ -99,6 +109,49 @@ struct rtsocket *rt_udp_v4_lookup(u32 daddr, u16 dport)
 
     return NULL;
 }
+#endif
+
+static inline struct rtsocket *rt_udp_v4_lookup(u32 daddr, u16 dport)
+{
+    unsigned long   flags;
+    int             index;
+    int             bit;
+    int             bitmap_index;
+    u32             bitmap;
+    struct rtsocket *sock;
+
+
+    for (bitmap_index = 0; bitmap_index < ((RT_UDP_SOCKETS + 31) / 32);
+         bitmap_index++) {
+        bit    = 0;
+        index  = bitmap_index * 32;
+
+        rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
+
+        bitmap = port_bitmap[bitmap_index];
+        while (bitmap != 0) {
+            if (test_bit(bit, &bitmap)) {
+                if ((port_registry[index].sport == dport) &&
+                    ((port_registry[index].saddr == INADDR_ANY) ||
+                     (port_registry[index].saddr == daddr))) {
+                    sock = port_registry[index].sock;
+                    rt_socket_reference(sock);
+
+                    rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
+
+                    return sock;
+                }
+                clear_bit(bit, &bitmap);
+            }
+            index++;
+            bit++;
+        }
+
+        rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
+    }
+
+    return NULL;
+}
 
 
 
@@ -110,7 +163,9 @@ struct rtsocket *rt_udp_v4_lookup(u32 daddr, u16 dport)
 int rt_udp_bind(struct rtsocket *sock, const struct sockaddr *addr,
                 socklen_t addrlen)
 {
-    struct sockaddr_in *usin = (struct sockaddr_in *)addr;
+    struct sockaddr_in  *usin = (struct sockaddr_in *)addr;
+    unsigned long       flags;
+    int                 index;
 
 
     if ((sock->prot.inet.state != TCP_CLOSE) ||
@@ -119,16 +174,20 @@ int rt_udp_bind(struct rtsocket *sock, const struct sockaddr *addr,
         return -EINVAL;
 
 // TO-DO: make this NRT-safe!!!
-    rtos_res_lock(&udp_socket_base_lock);
+    rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
 
     /* set the source-addr */
     sock->prot.inet.saddr = usin->sin_addr.s_addr;
 
     /* set source port, if not set by user */
     if ((sock->prot.inet.sport = usin->sin_port) == 0)
-        sock->prot.inet.sport = sock->prot.inet.auto_port;
+        sock->prot.inet.sport = sock->prot.inet.reg_index + auto_port_start;
 
-    rtos_res_unlock(&udp_socket_base_lock);
+    index = sock->prot.inet.reg_index;
+    port_registry[index].sport = sock->prot.inet.sport;
+    port_registry[index].saddr = sock->prot.inet.saddr;
+
+    rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
 // End of TO-DO
 
     return 0;
@@ -142,23 +201,24 @@ int rt_udp_bind(struct rtsocket *sock, const struct sockaddr *addr,
 int rt_udp_connect(struct rtsocket *sock, const struct sockaddr *serv_addr,
                    socklen_t addrlen)
 {
-    struct sockaddr_in *usin = (struct sockaddr_in *) serv_addr;
+    struct sockaddr_in  *usin = (struct sockaddr_in *) serv_addr;
+    unsigned long       flags;
 
 
     if (usin->sin_family == AF_UNSPEC) {
 // TO-DO: make this NRT-safe!!!
-        rtos_res_lock(&udp_socket_base_lock);
+        rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
 
         sock->prot.inet.saddr = INADDR_ANY;
         /* Note: The following line differs from standard stacks, and we also
                  don't remove the socket from the port list. Might get fixed in
                  the future... */
-        sock->prot.inet.sport = sock->prot.inet.auto_port;
+        sock->prot.inet.sport = sock->prot.inet.reg_index + auto_port_start;
         sock->prot.inet.daddr = INADDR_ANY;
         sock->prot.inet.sport = 0;
         sock->prot.inet.state = TCP_CLOSE;
 
-        rtos_res_unlock(&udp_socket_base_lock);
+        rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
 // End of TO-DO
     }
 
@@ -185,6 +245,8 @@ int rt_udp_socket(struct rtdm_dev_context *context, int call_flags)
     struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
     int             ret;
     int             i;
+    int             index;
+    unsigned long   flags;
 
 
     if ((ret = rt_socket_init(context)) != 0)
@@ -195,11 +257,11 @@ int rt_udp_socket(struct rtdm_dev_context *context, int call_flags)
     sock->prot.inet.state = TCP_CLOSE;
 
 // TO-DO: make this NRT-safe!!!
-    rtos_res_lock(&udp_socket_base_lock);
+    rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
 
     /* enforce maximum number of UDP sockets */
     if (free_ports == 0) {
-        rtos_res_unlock(&udp_socket_base_lock);
+        rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
         return -EAGAIN;
     }
     free_ports--;
@@ -208,15 +270,19 @@ int rt_udp_socket(struct rtdm_dev_context *context, int call_flags)
     for (i = 0; i < sizeof(port_bitmap)/4; i++)
         if (port_bitmap[i] != 0xFFFFFFFF)
             break;
-    ret = ffz(port_bitmap[i]);
-    set_bit(ret, &port_bitmap[i]);
-    sock->prot.inet.auto_port = ret + i*32 + auto_port_start;
-    sock->prot.inet.sport     = sock->prot.inet.auto_port;
+    index = ffz(port_bitmap[i]);
+    set_bit(index, &port_bitmap[i]);
+    index += i*32;
+    sock->prot.inet.reg_index = index;
+    sock->prot.inet.sport     = index + auto_port_start;
 
     /* add to UDP socket list */
-    list_add_tail(&sock->list_entry, &udp_sockets);
+//    list_add_tail(&sock->list_entry, &udp_sockets);
+    port_registry[index].sport = sock->prot.inet.sport;
+    port_registry[index].saddr = INADDR_ANY;
+    port_registry[index].sock  = sock;
 
-    rtos_res_unlock(&udp_socket_base_lock);
+    rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
 // End of TO-DO
 
     return 0;
@@ -232,22 +298,25 @@ int rt_udp_close(struct rtdm_dev_context *context, int call_flags)
     struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
     struct rtskb    *del;
     int             port;
+    unsigned long   flags;
 
 
     sock->prot.inet.state = TCP_CLOSE;
 
 // TO-DO: make this NRT-safe!!!
-    rtos_res_lock(&udp_socket_base_lock);
+    rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
 
-    if (sock->list_entry.next != NULL) {
+/*    if (sock->list_entry.next != NULL) {
         list_del(&sock->list_entry);
-        sock->list_entry.next = NULL;
-
-        port = sock->prot.inet.auto_port - auto_port_start;
+        sock->list_entry.next = NULL;*/
+    if (sock->prot.inet.reg_index >= 0) {
+        port = sock->prot.inet.reg_index;
         clear_bit(port % 32, &port_bitmap[port / 32]);
+
+        sock->prot.inet.reg_index = -1;
     }
 
-    rtos_res_unlock(&udp_socket_base_lock);
+    rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
 // End of TO-DO
 
     /* cleanup already collected fragments */
@@ -629,10 +698,12 @@ static struct rtinet_protocol udp_protocol = {
  */
 void __init rt_udp_init(void)
 {
+    if ((auto_port_start < 0) || (auto_port_start >= 0x10000 - RT_UDP_SOCKETS))
+        auto_port_start = 1024;
     auto_port_start = htons(auto_port_start & (auto_port_mask & 0xFFFF));
     auto_port_mask  = htons(auto_port_mask | 0xFFFF0000);
 
-    rtos_res_lock_init(&udp_socket_base_lock);
+    rtos_spin_lock_init(&udp_socket_base_lock);
     rt_inet_add_protocol(&udp_protocol);
 }
 
@@ -644,5 +715,4 @@ void __init rt_udp_init(void)
 void rt_udp_release(void)
 {
     rt_inet_del_protocol(&udp_protocol);
-    rtos_res_lock_delete(&udp_socket_base_lock);
 }
