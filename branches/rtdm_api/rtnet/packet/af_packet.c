@@ -36,17 +36,27 @@ int rt_packet_rcv(struct rtskb *skb, struct rtpacket_type *pt)
 {
     struct rtsocket *sock = (struct rtsocket *)(((u8 *)pt) -
                                 ((u8 *)&((struct rtsocket *)0)->prot.packet));
+    int             ifindex = sock->prot.packet.ifindex;
+    void            (*callback_func)(struct rtdm_dev_context *, void *);
+    void            *callback_arg;
+    unsigned long   flags;
 
-    if (((sock->prot.packet.ifindex != 0) &&
-         (sock->prot.packet.ifindex != skb->rtdev->ifindex)) ||
+
+    if (((ifindex != 0) && (ifindex != skb->rtdev->ifindex)) ||
         (rtskb_acquire(skb, &sock->skb_pool) != 0))
         kfree_rtskb(skb);
     else {
         rtdev_reference(skb->rtdev);
         rtskb_queue_tail(&sock->incoming, skb);
         rtos_event_sem_signal(&sock->wakeup_event);
-        if (sock->callback_func)
-            sock->callback_func(rt_socket_context(sock), sock->callback_arg);
+
+        rtos_spin_lock_irqsave(&sock->param_lock, flags);
+        callback_func = sock->callback_func;
+        callback_arg  = sock->callback_arg;
+        rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+
+        if (callback_func)
+            callback_func(rt_socket_context(sock), callback_arg);
     }
     return 0;
 }
@@ -59,10 +69,11 @@ int rt_packet_rcv(struct rtskb *skb, struct rtpacket_type *pt)
 int rt_packet_bind(struct rtsocket *sock, const struct sockaddr *addr,
                    socklen_t addrlen)
 {
-    struct sockaddr_ll   *sll = (struct sockaddr_ll *)addr;
-    struct rtpacket_type *pt  = &sock->prot.packet.packet_type;
-    int new_type;
-    int ret;
+    struct sockaddr_ll      *sll = (struct sockaddr_ll *)addr;
+    struct rtpacket_type    *pt  = &sock->prot.packet.packet_type;
+    int                     new_type;
+    int                     ret;
+    unsigned long           flags;
 
 
     if ((addrlen < (int)sizeof(struct sockaddr_ll)) ||
@@ -71,10 +82,12 @@ int rt_packet_bind(struct rtsocket *sock, const struct sockaddr *addr,
 
     new_type = (sll->sll_protocol != 0) ? sll->sll_protocol : sock->protocol;
 
+    rtos_spin_lock_irqsave(&sock->param_lock, flags);
+
     /* release exisiting binding */
-    if (pt->type != 0) {
-        if ((ret = rtdev_remove_pack(pt)) < 0)
-            return ret;
+    if ((pt->type != 0) && ((ret = rtdev_remove_pack(pt)) < 0)) {
+        rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+        return ret;
     }
 
     pt->type = new_type;
@@ -86,9 +99,13 @@ int rt_packet_bind(struct rtsocket *sock, const struct sockaddr *addr,
         pt->handler     = rt_packet_rcv;
         pt->err_handler = NULL;
 
-        return rtdev_add_pack(pt);
+        ret = rtdev_add_pack(pt);
     } else
-        return 0;
+        ret = 0;
+
+    rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+
+    return ret;
 }
 
 
@@ -96,21 +113,26 @@ int rt_packet_bind(struct rtsocket *sock, const struct sockaddr *addr,
 /***
  *  rt_packet_getsockname
  */
-int rt_packet_getsockname(struct rtsocket *s, struct sockaddr *addr,
+int rt_packet_getsockname(struct rtsocket *sock, struct sockaddr *addr,
                           socklen_t *addrlen)
 {
     struct sockaddr_ll  *sll = (struct sockaddr_ll*)addr;
     struct rtnet_device *rtdev;
+    unsigned long       flags;
 
 
     if (*addrlen < sizeof(struct sockaddr_ll))
         return -EINVAL;
 
-    sll->sll_family   = AF_PACKET;
-    sll->sll_ifindex  = s->prot.packet.ifindex;
-    sll->sll_protocol = s->protocol;
+    rtos_spin_lock_irqsave(&sock->param_lock, flags);
 
-    rtdev = rtdev_get_by_index(s->prot.packet.ifindex);
+    sll->sll_family   = AF_PACKET;
+    sll->sll_ifindex  = sock->prot.packet.ifindex;
+    sll->sll_protocol = sock->protocol;
+
+    rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+
+    rtdev = rtdev_get_by_index(sll->sll_ifindex);
     if (rtdev != NULL) {
         sll->sll_hatype = rtdev->type;
         sll->sll_halen  = rtdev->addr_len;
@@ -174,12 +196,15 @@ int rt_packet_close(struct rtdm_dev_context *context, int call_flags)
     struct rtpacket_type    *pt = &sock->prot.packet.packet_type;
     struct rtskb            *del;
     int                     ret = 0;
+    unsigned long           flags;
 
 
-    if (pt->type != 0) {
-        if ((ret = rtdev_remove_pack(pt)) == 0)
-            pt->type = 0;
-    }
+    rtos_spin_lock_irqsave(&sock->param_lock, flags);
+
+    if ((pt->type != 0) && ((ret = rtdev_remove_pack(pt)) == 0))
+        pt->type = 0;
+
+    rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
 
     /* free packets in incoming queue */
     while ((del = rtskb_dequeue(&sock->incoming)) != NULL)
@@ -227,7 +252,7 @@ int rt_packet_ioctl(struct rtdm_dev_context *context, int call_flags,
  *  rt_packet_recvmsg
  */
 ssize_t rt_packet_recvmsg(struct rtdm_dev_context *context, int call_flags,
-                          struct msghdr *msg, int flags)
+                          struct msghdr *msg, int msg_flags)
 {
     struct rtsocket     *sock = (struct rtsocket *)&context->dev_private;
     size_t              len   = rt_iovec_len(msg->msg_iov, msg->msg_iovlen);
@@ -237,15 +262,20 @@ ssize_t rt_packet_recvmsg(struct rtdm_dev_context *context, int call_flags,
     struct ethhdr       *eth;
     struct sockaddr_ll  *sll;
     int                 ret;
+    unsigned long       flags;
+    rtos_time_t         timeout;
 
 
     /* block on receive event */
     if (!test_bit(RT_SOCK_NONBLOCK, &context->context_flags) &&
-        ((flags & MSG_DONTWAIT) == 0))
+        ((msg_flags & MSG_DONTWAIT) == 0))
         while ((skb = rtskb_dequeue_chain(&sock->incoming)) == NULL) {
-            if (!RTOS_TIME_IS_ZERO(&sock->timeout)) {
-                ret = rtos_event_sem_wait_timed(&sock->wakeup_event,
-                                                &sock->timeout);
+            rtos_spin_lock_irqsave(&sock->param_lock, flags);
+            memcpy(&timeout, &sock->timeout, sizeof(timeout));
+            rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+
+            if (!RTOS_TIME_IS_ZERO(&timeout)) {
+                ret = rtos_event_sem_wait_timed(&sock->wakeup_event, &timeout);
                 if (ret == RTOS_EVENT_TIMEOUT)
                     return -ETIMEDOUT;
             } else
@@ -289,7 +319,7 @@ ssize_t rt_packet_recvmsg(struct rtdm_dev_context *context, int call_flags,
     /* copy the data */
     rt_memcpy_tokerneliovec(msg->msg_iov, skb->data, copy_len);
 
-    if ((flags & MSG_PEEK) == 0) {
+    if ((msg_flags & MSG_PEEK) == 0) {
         rtdev_dereference(skb->rtdev);
         kfree_rtskb(skb);
     } else

@@ -168,27 +168,30 @@ int rt_udp_bind(struct rtsocket *sock, const struct sockaddr *addr,
     int                 index;
 
 
-    if ((sock->prot.inet.state != TCP_CLOSE) ||
-        (addrlen < (int)sizeof(struct sockaddr_in)) ||
+    if ((addrlen < (int)sizeof(struct sockaddr_in)) ||
         ((usin->sin_port & auto_port_mask) == auto_port_start))
         return -EINVAL;
 
-// TO-DO: make this NRT-safe!!!
+    index = sock->prot.inet.reg_index;
+
     rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
+
+    if (sock->prot.inet.state != TCP_CLOSE) {
+        rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
+        return -EINVAL;
+    }
 
     /* set the source-addr */
     sock->prot.inet.saddr = usin->sin_addr.s_addr;
 
     /* set source port, if not set by user */
     if ((sock->prot.inet.sport = usin->sin_port) == 0)
-        sock->prot.inet.sport = sock->prot.inet.reg_index + auto_port_start;
+        sock->prot.inet.sport = index + auto_port_start;
 
-    index = sock->prot.inet.reg_index;
     port_registry[index].sport = sock->prot.inet.sport;
     port_registry[index].saddr = sock->prot.inet.saddr;
 
     rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
-// End of TO-DO
 
     return 0;
 }
@@ -206,7 +209,6 @@ int rt_udp_connect(struct rtsocket *sock, const struct sockaddr *serv_addr,
 
 
     if (usin->sin_family == AF_UNSPEC) {
-// TO-DO: make this NRT-safe!!!
         rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
 
         sock->prot.inet.saddr = INADDR_ANY;
@@ -215,21 +217,28 @@ int rt_udp_connect(struct rtsocket *sock, const struct sockaddr *serv_addr,
                  the future... */
         sock->prot.inet.sport = sock->prot.inet.reg_index + auto_port_start;
         sock->prot.inet.daddr = INADDR_ANY;
-        sock->prot.inet.sport = 0;
+        sock->prot.inet.dport = 0;
         sock->prot.inet.state = TCP_CLOSE;
 
         rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
-// End of TO-DO
+    } else {
+        if ((addrlen < (int)sizeof(struct sockaddr_in)) ||
+            (usin->sin_family != AF_INET))
+            return -EINVAL;
+
+        rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
+
+        if (sock->prot.inet.state != TCP_CLOSE) {
+            rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
+            return -EINVAL;
+        }
+
+        sock->prot.inet.state = TCP_ESTABLISHED;
+        sock->prot.inet.daddr = usin->sin_addr.s_addr;
+        sock->prot.inet.dport = usin->sin_port;
+
+        rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
     }
-
-    if ((sock->prot.inet.state != TCP_CLOSE) ||
-        (addrlen < (int)sizeof(struct sockaddr_in)) ||
-        (usin->sin_family != AF_INET))
-        return -EINVAL;
-
-    sock->prot.inet.state = TCP_ESTABLISHED;
-    sock->prot.inet.daddr = usin->sin_addr.s_addr;
-    sock->prot.inet.dport = usin->sin_port;
 
     return 0;
 }
@@ -256,7 +265,6 @@ int rt_udp_socket(struct rtdm_dev_context *context, int call_flags)
     sock->prot.inet.saddr = INADDR_ANY;
     sock->prot.inet.state = TCP_CLOSE;
 
-// TO-DO: make this NRT-safe!!!
     rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
 
     /* enforce maximum number of UDP sockets */
@@ -276,14 +284,12 @@ int rt_udp_socket(struct rtdm_dev_context *context, int call_flags)
     sock->prot.inet.reg_index = index;
     sock->prot.inet.sport     = index + auto_port_start;
 
-    /* add to UDP socket list */
-//    list_add_tail(&sock->list_entry, &udp_sockets);
+    /* register UDP socket */
     port_registry[index].sport = sock->prot.inet.sport;
     port_registry[index].saddr = INADDR_ANY;
     port_registry[index].sock  = sock;
 
     rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
-// End of TO-DO
 
     return 0;
 }
@@ -301,14 +307,10 @@ int rt_udp_close(struct rtdm_dev_context *context, int call_flags)
     unsigned long   flags;
 
 
-    sock->prot.inet.state = TCP_CLOSE;
-
-// TO-DO: make this NRT-safe!!!
     rtos_spin_lock_irqsave(&udp_socket_base_lock, flags);
 
-/*    if (sock->list_entry.next != NULL) {
-        list_del(&sock->list_entry);
-        sock->list_entry.next = NULL;*/
+    sock->prot.inet.state = TCP_CLOSE;
+
     if (sock->prot.inet.reg_index >= 0) {
         port = sock->prot.inet.reg_index;
         clear_bit(port % 32, &port_bitmap[port / 32]);
@@ -317,7 +319,6 @@ int rt_udp_close(struct rtdm_dev_context *context, int call_flags)
     }
 
     rtos_spin_unlock_irqrestore(&udp_socket_base_lock, flags);
-// End of TO-DO
 
     /* cleanup already collected fragments */
     rt_ip_frag_invalidate_socket(sock);
@@ -342,6 +343,10 @@ int rt_udp_ioctl(struct rtdm_dev_context *context, int call_flags, int request,
     if (_IOC_TYPE(request) == RTIOC_TYPE_NETWORK)
         return rt_socket_common_ioctl(context, call_flags, request, arg);
 
+    /* no further operations on closing socket (reg_index becomes invalid!) */
+    if (test_bit(RTDM_CLOSING, &context->context_flags))
+        return -EBADF;
+
     switch (request) {
         case RTIOC_BIND:
             return rt_udp_bind(sock, setaddr->addr, setaddr->addrlen);
@@ -360,7 +365,7 @@ int rt_udp_ioctl(struct rtdm_dev_context *context, int call_flags, int request,
  *  rt_udp_recvmsg
  */
 ssize_t rt_udp_recvmsg(struct rtdm_dev_context *context, int call_flags,
-                       struct msghdr *msg, int flags)
+                       struct msghdr *msg, int msg_flags)
 {
     struct rtsocket     *sock = (struct rtsocket *)&context->dev_private;
     size_t              len   = rt_iovec_len(msg->msg_iov, msg->msg_iovlen);
@@ -372,15 +377,20 @@ ssize_t rt_udp_recvmsg(struct rtdm_dev_context *context, int call_flags,
     struct udphdr       *uh;
     struct sockaddr_in  *sin;
     int                 ret;
+    unsigned long       flags;
+    rtos_time_t         timeout;
 
 
     /* block on receive event */
     if (!test_bit(RT_SOCK_NONBLOCK, &context->context_flags) &&
-        ((flags & MSG_DONTWAIT) == 0))
+        ((msg_flags & MSG_DONTWAIT) == 0))
         while ((skb = rtskb_dequeue_chain(&sock->incoming)) == NULL) {
-            if (!RTOS_TIME_IS_ZERO(&sock->timeout)) {
-                ret = rtos_event_sem_wait_timed(&sock->wakeup_event,
-                                                &sock->timeout);
+            rtos_spin_lock_irqsave(&sock->param_lock, flags);
+            memcpy(&timeout, &sock->timeout, sizeof(timeout));
+            rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+
+            if (!RTOS_TIME_IS_ZERO(&timeout)) {
+                ret = rtos_event_sem_wait_timed(&sock->wakeup_event, &timeout);
                 if (ret == RTOS_EVENT_TIMEOUT)
                     return -ETIMEDOUT;
             } else
@@ -443,7 +453,7 @@ ssize_t rt_udp_recvmsg(struct rtdm_dev_context *context, int call_flags,
     if (data_len > 0)
         msg->msg_flags |= MSG_TRUNC;
 
-    if ((flags & MSG_PEEK) == 0)
+    if ((msg_flags & MSG_PEEK) == 0)
         kfree_rtskb(first_skb);
     else {
         __rtskb_push(first_skb, sizeof(struct udphdr));
@@ -513,44 +523,55 @@ static int rt_udp_getfrag(const void *p, char *to, unsigned int offset, unsigned
  *  rt_udp_sendmsg
  */
 ssize_t rt_udp_sendmsg(struct rtdm_dev_context *context, int call_flags,
-                       const struct msghdr *msg, int flags)
+                       const struct msghdr *msg, int msg_flags)
 {
     struct rtsocket     *sock = (struct rtsocket *)&context->dev_private;
     size_t              len   = rt_iovec_len(msg->msg_iov, msg->msg_iovlen);
     int                 ulen  = len + sizeof(struct udphdr);
+    struct sockaddr_in  *usin;
     struct udpfakehdr   ufh;
     struct dest_route   rt;
+    u32                 saddr;
     u32                 daddr;
     u16                 dport;
     int                 err;
+    unsigned long       flags;
 
 
     if ((len < 0) || (len > 0xFFFF-sizeof(struct iphdr)-sizeof(struct udphdr)))
         return -EMSGSIZE;
 
-    if (flags & MSG_OOB)   /* Mirror BSD error message compatibility */
+    if (msg_flags & MSG_OOB)   /* Mirror BSD error message compatibility */
         return -EOPNOTSUPP;
 
-    if (flags & ~(MSG_DONTROUTE|MSG_DONTWAIT) )
+    if (msg_flags & ~(MSG_DONTROUTE|MSG_DONTWAIT) )
         return -EINVAL;
 
     if ((msg->msg_name) && (msg->msg_namelen==sizeof(struct sockaddr_in))) {
-        struct sockaddr_in *usin = (struct sockaddr_in*) msg->msg_name;
+        usin = (struct sockaddr_in*) msg->msg_name;
 
-        if ((usin->sin_family!=AF_INET) && (usin->sin_family!=AF_UNSPEC))
+        if ((usin->sin_family != AF_INET) && (usin->sin_family != AF_UNSPEC))
             return -EINVAL;
 
         daddr = usin->sin_addr.s_addr;
         dport = usin->sin_port;
+
+        rtos_spin_lock_irqsave(&sock->param_lock, flags);
     } else {
+        rtos_spin_lock_irqsave(&sock->param_lock, flags);
+
         if (sock->prot.inet.state != TCP_ESTABLISHED)
             return -ENOTCONN;
 
         daddr = sock->prot.inet.daddr;
         dport = sock->prot.inet.dport;
     }
+    saddr         = sock->prot.inet.saddr;
+    ufh.uh.source = sock->prot.inet.sport;
 
-    if ((daddr==0) || (dport==0))
+    rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+
+    if ((daddr | dport) == 0)
         return -EINVAL;
 
     /* get output route */
@@ -559,8 +580,7 @@ ssize_t rt_udp_sendmsg(struct rtdm_dev_context *context, int call_flags,
         return err;
 
     /* check if specified source address fits */
-    if ((sock->prot.inet.saddr != INADDR_ANY) &&
-        (sock->prot.inet.saddr != rt.rtdev->local_ip)) {
+    if ((saddr != INADDR_ANY) && (saddr != rt.rtdev->local_ip)) {
         rtdev_dereference(rt.rtdev);
         return -EHOSTUNREACH;
     }
@@ -568,7 +588,6 @@ ssize_t rt_udp_sendmsg(struct rtdm_dev_context *context, int call_flags,
     /* we found a route, remember the routing dest-addr could be the netmask */
     ufh.saddr     = rt.rtdev->local_ip;
     ufh.daddr     = daddr;
-    ufh.uh.source = sock->prot.inet.sport;
     ufh.uh.dest   = dport;
     ufh.uh.len    = htons(ulen);
     ufh.uh.check  = 0;
@@ -576,7 +595,7 @@ ssize_t rt_udp_sendmsg(struct rtdm_dev_context *context, int call_flags,
     ufh.iovlen    = msg->msg_iovlen;
     ufh.wcheck    = 0;
 
-    err = rt_ip_build_xmit(sock, rt_udp_getfrag, &ufh, ulen, &rt, flags);
+    err = rt_ip_build_xmit(sock, rt_udp_getfrag, &ufh, ulen, &rt, msg_flags);
 
     rtdev_dereference(rt.rtdev);
 
@@ -643,13 +662,22 @@ struct rtsocket *rt_udp_dest_socket(struct rtskb *skb)
  */
 int rt_udp_rcv (struct rtskb *skb)
 {
-    struct rtsocket *rtsk = skb->sk;
+    struct rtsocket *sock = skb->sk;
+    void            (*callback_func)(struct rtdm_dev_context *, void *);
+    void            *callback_arg;
+    unsigned long   flags;
 
 
-    rtskb_queue_tail(&rtsk->incoming, skb);
-    rtos_event_sem_signal(&rtsk->wakeup_event);
-    if (rtsk->callback_func)
-        rtsk->callback_func(rt_socket_context(rtsk), rtsk->callback_arg);
+    rtskb_queue_tail(&sock->incoming, skb);
+    rtos_event_sem_signal(&sock->wakeup_event);
+
+    rtos_spin_lock_irqsave(&sock->param_lock, flags);
+    callback_func = sock->callback_func;
+    callback_arg  = sock->callback_arg;
+    rtos_spin_unlock_irqrestore(&sock->param_lock, flags);
+
+    if (callback_func)
+        callback_func(rt_socket_context(sock), callback_arg);
 
     return 0;
 }
@@ -663,20 +691,6 @@ void rt_udp_rcv_err (struct rtskb *skb)
 {
     rtos_print("RTnet: rt_udp_rcv err\n");
 }
-
-
-
-/*static struct rtsocket_ops rt_udp_socket_ops = {
-    bind:        rt_udp_bind,
-    connect:     rt_udp_connect,
-    listen:      rt_udp_listen,
-    accept:      rt_udp_accept,
-    recvmsg:     rt_udp_recvmsg,
-    sendmsg:     rt_udp_sendmsg,
-    close:       rt_udp_close,
-    setsockopt:  rt_ip_setsockopt,
-    getsockname: rt_ip_getsockname
-};*/
 
 
 
