@@ -61,18 +61,18 @@ MODULE_LICENSE("GPL");
 # define ERR_PK(txt, args...)
 #endif
 
-#define SET_DEFAULT_OP(device, operation)                           \
-    do {                                                            \
-        (int (*)(void))(device).operation##_rt  = rtdm_nosys;       \
-        (int (*)(void))(device).operation##_nrt = rtdm_nosys;       \
+#define SET_DEFAULT_OP(device, operation)                   \
+    do {                                                    \
+        (device).operation##_rt  = (void *)rtdm_nosys;      \
+        (device).operation##_nrt = (void *)rtdm_nosys;      \
     } while (0)
 
-#define SET_DEFAULT_OP_IF_NULL(device, operation)                   \
-    do {                                                            \
-        if (!(device).operation##_rt)                               \
-            (int (*)(void))(device).operation##_rt = rtdm_nosys;    \
-        if (!(device).operation##_nrt)                              \
-            (int (*)(void))(device).operation##_nrt = rtdm_nosys;   \
+#define SET_DEFAULT_OP_IF_NULL(device, operation)           \
+    do {                                                    \
+        if (!(device).operation##_rt)                       \
+            (device).operation##_rt = (void *)rtdm_nosys;   \
+        if (!(device).operation##_nrt)                      \
+            (device).operation##_nrt = (void *)rtdm_nosys;  \
     } while (0)
 
 #define NO_HANDLER(device, operation)                               \
