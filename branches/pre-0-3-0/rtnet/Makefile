@@ -1,4 +1,4 @@
-subdirs		:= tools driver ipv4 ethernet lib examples rtmac
+subdirs		:= tools driver ipv4 ethernet lib examples rtmac test
 
 ALL_SUB_DIRS	:= $(subdirs)
 MOD_SUB_DIRS	:= $(subdirs)

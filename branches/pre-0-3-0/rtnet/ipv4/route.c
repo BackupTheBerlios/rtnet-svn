@@ -26,7 +26,7 @@
  *
  *		ROUTE - implementation of the IP router.
  *
- * Version:	$Id: route.c,v 1.1 2003/01/29 16:09:02 yamwong Exp $
+ * Version:	$Id: route.c,v 1.1.1.1.2.1 2003/03/10 18:18:02 yamwong Exp $
  *
  * Authors:	Ross Biro, <bir7@leland.Stanford.Edu>
  *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
@@ -247,7 +247,7 @@ struct rt_rtable *rt_ip_route_add_specific(struct rtnet_device *rtdev, u32 addr,
 	rt->rt_dst_mask=0xffffffff;	/* it's specific, safer */
 	rt->rt_src=rtdev->local_addr;
 	rt->rt_dev=rtdev;
-	rt->rt_ifindex=dev_get_by_rtdev(rtdev)->ifindex;
+	rt->rt_ifindex=rtdev->ifindex;
 	
 	memcpy(rt->rt_dst_mac_addr, hw_addr, RT_ARP_ADDR_LEN);
 
@@ -409,7 +409,7 @@ route:
 	rt->rt_dst_mask=0xffffffff;	/* it's specific, safer */
 	rt->rt_src=daddr;
 	rt->rt_dev=rtdev;
-	rt->rt_ifindex=dev_get_by_rtdev(rtdev)->ifindex;
+	rt->rt_ifindex=rtdev->ifindex;
 	
 	memcpy(rt->rt_dst_mac_addr,skb->mac.ethernet->h_source,RT_ARP_ADDR_LEN);
 
@@ -426,6 +426,7 @@ route:
 
 
 
+#if 0
 /***
  *	rt_ip_dev_find
  *
@@ -433,18 +434,24 @@ route:
 static struct rtnet_device *rt_ip_dev_find(u32 saddr)
 {
 	if (!saddr)
-		return rtdev_base;
+		return rtnet_devices;
 	else {
 		struct rtnet_device *rtdev;
+		unsigned long flags;
 	
-		for (rtdev=rtdev_base; rtdev!=NULL; rtdev=rtdev->next) {
-			if (saddr==rtdev->local_addr)
+		flags = rt_spin_lock_irqsave(&rtnet_devices_lock);
+		for (rtdev=rtnet_devices; rtdev!=NULL; rtdev=rtdev->next) {
+		    if (saddr==rtdev->local_addr) {
+			    rt_spin_unlock_irqrestore(flags, &rtnet_devices_lock);
 				return rtdev;
+		    }
 		}
+		rt_spin_unlock_irqrestore(flags, &rtnet_devices_lock);
 		rt_printk("RTnet: rt_ip_dev_find() returning NULL\n");
 		return NULL;
 	}
 }
+#endif
 
 
 

@@ -227,8 +227,16 @@ void tdma_task_master(int rtdev_id)
 
 		skb = tdma_make_msg(rtdev, NULL, START_OF_FRAME, &data);
 
+		if (!skb) {
+			rt_task_wait_period();
+			continue;
+		}
+
 		rt_task_wait_period();
 	
+		/* Store timestamp in SOF. I assume that there is enough space. */
+		*(RTIME *)data = rt_get_time_ns();
+
 		rtmac->packet_tx(skb, skb->rtdev);
 	
 		/*

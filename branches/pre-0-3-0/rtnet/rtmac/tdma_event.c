@@ -882,6 +882,8 @@ static int tdma_master_request_up(struct rtmac_tdma *tdma)
 		return -1;
 	}
 
+	tdma_next_state(tdma, TDMA_MASTER_SENT_CONF);
+
 	/*
 	 * send config request to every station
 	 */
@@ -898,6 +900,8 @@ static int tdma_master_request_up(struct rtmac_tdma *tdma)
 		tdma_send_conf(tdma, arp_entry->hw_addr, station);
 
 		station++;
+
+		rt_busy_sleep(100000);
 	}
 
 	/*
@@ -905,8 +909,6 @@ static int tdma_master_request_up(struct rtmac_tdma *tdma)
 	 * after timeout we will look if all station acknoleged our request
 	 */
 	tdma_timer_start_sent_conf(tdma, TDMA_SENT_CLIENT_CONF_TIMEOUT);
-
-	tdma_next_state(tdma, TDMA_MASTER_SENT_CONF);
 
 	return ret;
 }
@@ -1282,8 +1284,17 @@ static void tdma_client_rcvd_change_offset(struct rtmac_tdma *tdma, struct rtskb
 static void tdma_rcvd_sof(struct rtmac_tdma *tdma, struct rtskb *skb)
 {
 	tdma->wakeup = skb->rx + tdma->offset;
+	tdma->delta_t = *(RTIME *)(skb->data) - count2nano(skb->rx);
 	
-	rt_sem_signal(&tdma->client_tx);
+	/* rt_sem_broadcast() will wake up all tasks, which are waiting
+	   for SOF, inclusive tdma_task_client. This allows application
+	   softwares to do some tasks when SOF arrives.
+
+	   NOTE: rt_sem_broadcast() does not unlock the semaphore. It just
+	   wakes up all tasks that are, at the moment, waiting on the sempahore.
+	   -WY-
+	 */
+	rt_sem_broadcast(&tdma->client_tx);
 }
 
 

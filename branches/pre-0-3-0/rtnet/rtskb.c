@@ -122,8 +122,8 @@ void rtskb_copy_and_csum_dev(const struct rtskb *skb, u8 *to)
 void rtskb_over_panic(struct rtskb *skb, int sz, void *here)
 {
 	char *name;
-	if ( (skb->rtdev) && (dev_get_by_rtdev(skb->rtdev)) ) 
-		name=dev_get_by_rtdev(skb->rtdev)->name;
+	if ( skb->rtdev ) 
+		name=skb->rtdev->name;
 	else 
 		name="<NULL>";
 	rt_printk("RTnet: rtskb_put :over: %p:%d put:%d dev:%s\n", here, skb->len, sz, name );
@@ -142,8 +142,8 @@ void rtskb_over_panic(struct rtskb *skb, int sz, void *here)
 void rtskb_under_panic(struct rtskb *skb, int sz, void *here)
 {
 	char *name = "";
-	if ( (skb->rtdev) && (dev_get_by_rtdev(skb->rtdev)) ) 
-		name=dev_get_by_rtdev(skb->rtdev)->name;
+	if ( skb->rtdev ) 
+		name=skb->rtdev->name;
 	else 
 		name="<NULL>";
 		
@@ -233,7 +233,8 @@ void dispose_rtskb(struct rtskb *skb)
  */
 struct rtskb *alloc_rtskb(unsigned int size) 
 {
-	struct rtskb *skb; 
+	struct rtskb *skb;
+	unsigned long flags;
 
 	if ( rtskb_pool.qlen>0 ) 
 		skb = rtskb_dequeue(&rtskb_pool);
@@ -243,17 +244,20 @@ struct rtskb *alloc_rtskb(unsigned int size)
 		return NULL;
 	}
 
-	/* Load the data pointers. */
-	skb->data = skb->buf_start;
-	skb->tail = skb->buf_start;
-	skb->end  = skb->buf_start + size;
-	
-	/* Set up other state */
-	skb->len = 0;
-	skb->cloned = 0;
-	skb->data_len = 0;
+	if (skb) {
 
-	skb->users = 1; 
+	    /* Load the data pointers. */
+	    skb->data = skb->buf_start;
+	    skb->tail = skb->buf_start;
+	    skb->end  = skb->buf_start + size;
+	
+	    /* Set up other state */
+	    skb->len = 0;
+	    skb->cloned = 0;
+	    skb->data_len = 0;
+
+	    skb->users = 1;
+	}
 		
 	if ( rtskb_pool.qlen<rtskb_pool_min )
 		rt_pend_linux_srq(inc_pool_srq);
