@@ -5,7 +5,7 @@ MOD_SUB_DIRS	:= $(subdirs)
 SUB_DIRS	:= 
 
 #M_OBJS		+= 8139too-rt.o eepro100-rt.o 3c59x-rt.o loopback-rt.o
-M_OBJS		+= 8139too-rt.o eepro100-rt.o
+M_OBJS		+= 8139too-rt.o eepro100-rt.o 3c59x-rt.o
 MI_OBJS		:=
 MIX_OBJS	+= 
 
