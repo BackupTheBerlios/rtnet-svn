@@ -18,6 +18,9 @@
  */
  
 // $Log: ip_output.c,v $
+// Revision 1.4.6.1  2003/04/15 14:01:40  hpbock
+// patched to use hooks in struct rtnet_device instead of rtdev_xmit()
+//
 // Revision 1.4  2003/02/12 07:49:15  hpbock
 // rt_ip_build_xmit() returns -EAGAIN if packet could not be sent by rtdev_xmit()
 //
@@ -101,7 +104,8 @@ int rt_ip_build_xmit(struct rtsocket *sk,
 		goto error;
 	}
 
-	err = rtdev_xmit(skb);
+	//	err = rtdev_xmit(skb);
+	err = rtdev->rt_xmit(skb);
 	if (err) {
 		return -EAGAIN;
 	} else {

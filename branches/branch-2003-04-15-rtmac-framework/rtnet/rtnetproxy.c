@@ -200,7 +200,8 @@ static inline void send_data_out(struct sk_buff *skb)
 
         /* Call the actual transmit function (this function is semaphore 
          * protected): */
-        rtdev_xmit(rtskb);
+	//        rtdev_xmit(rtskb);
+	rtdev->proxy_xmit(rtskb);
         /* The rtskb is freed somewhere deep in the driver... 
          * No need to do it here. */
     }
@@ -260,7 +261,7 @@ static int rtnetproxy_xmit(struct sk_buff *skb, struct net_device *dev)
     else
     {
         /* No space in the ringbuffer... */
-        printk("rtnetproxy_xmit - no space in queue\n");
+        //printk("rtnetproxy_xmit - no space in queue\n");
         dev_kfree_skb(skb);  /* Free the standard skb. */
     }
     
@@ -306,7 +307,7 @@ static int rtnetproxy_recv(struct rtskb *rtskb)
     else
     {
         /* No space in ringbuffer => Free rtskb here... */
-        rt_printk("rtnetproxy_recv: No space in queue\n");
+        //rt_printk("rtnetproxy_recv: No space in queue\n");
         kfree_rtskb(rtskb);
     }
 

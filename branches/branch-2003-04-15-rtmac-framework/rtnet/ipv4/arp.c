@@ -100,7 +100,8 @@ void rt_arp_send(int type,
 
 
 	/* send the frame */
-	rtdev_xmit_if(skb);
+	//	rtdev_xmit_if(skb);
+	rtdev->rt_xmit(skb);
 
 	return;
 
