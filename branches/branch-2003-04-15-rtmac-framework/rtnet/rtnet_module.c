@@ -35,6 +35,7 @@
 
 #include <rtnet.h>
 #include <rtnet_internal.h>
+#include <rtmac_mgr.h>
 
 MODULE_LICENSE("GPL");
 
@@ -104,13 +105,33 @@ int rtnet_init(void)
 
         /* initialise the Stack-Manager */
         if ( (err=rt_stack_mgr_init(&STACK_manager)) )
-		return err;
+		goto proc_mgr_err;
 
         /* initialise the RTDEV-Manager */
         if ( (err=rt_rtdev_mgr_init(&RTDEV_manager)) )
-		return err;
+		goto  stack_mgr_err;
+
+        /* initialise the RT-Wakeup-Manager */
+        if ( (err=rt_wakeup_mgr_init(&rt_wakeup_manager)) )
+		goto rtdev_mgr_err;
+
+        /* initialise the Proxy-Wakeup-Manager */
+        if ( (err=proxy_wakeup_mgr_init(&proxy_wakeup_manager)) )
+		goto wakeup_mgr_err;
 
         return 0;
+
+ wakeup_mgr_err:
+	rt_wakeup_mgr_delete(&rt_wakeup_manager);
+ rtdev_mgr_err:
+	rt_rtdev_mgr_delete(&RTDEV_manager);
+ stack_mgr_err:
+	rt_stack_mgr_delete(&STACK_manager);
+ proc_mgr_err:
+#ifdef CONFIG_PROC_FS
+        rtnet_mgr_proc_unregister ();
+#endif
+	return err;
 }
 
 
@@ -123,8 +144,10 @@ int rtnet_init(void)
 void rtnet_release(void)
 {
         rt_printk("RTnet: End real-time networking\n");
-	rt_stack_mgr_delete(&STACK_manager);
+	proxy_wakeup_mgr_delete(&proxy_wakeup_manager);
+	rt_wakeup_mgr_delete(&rt_wakeup_manager);
 	rt_rtdev_mgr_delete(&RTDEV_manager);
+	rt_stack_mgr_delete(&STACK_manager);
 
 #ifdef CONFIG_PROC_FS
         rtnet_mgr_proc_unregister ();
@@ -138,10 +161,5 @@ void rtnet_release(void)
         cleanup_crc32();
 }
 
-
-
 module_init(rtnet_init);
 module_exit(rtnet_release);
-
-
-

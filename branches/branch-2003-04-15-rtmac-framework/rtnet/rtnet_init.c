@@ -177,9 +177,3 @@ int rt_unregister_rtnetdev(struct rtnet_device *rtdev)
 
 	return 0;
 }
-
-
-
-
-
-

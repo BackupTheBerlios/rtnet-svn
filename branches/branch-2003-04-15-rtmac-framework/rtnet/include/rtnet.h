@@ -33,6 +33,8 @@
 #define RTNET_STACK_PRIORITY	1
 #define RTNET_RTDEV_PRIORITY	5
 #define DROPPING_RTSKB		20
+#define RTNET_RT_WAKEUP_PRIORITY	1
+#define RTNET_PROXY_WAKEUP_PRIORITY	(RT_LOWEST_PRIORITY-1)
 
 /****************************************************************************************
  * ipv4/arp.c										*
@@ -455,6 +457,7 @@ extern void rtnet_chrdev_release(void);
 enum RTnet_MSG {
 	Rx_PACKET = 1,
 	Tx_PACKET = 2,
+	WAKEUP,
 };
 
 struct rtnet_msg {

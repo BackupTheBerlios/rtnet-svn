@@ -81,8 +81,10 @@ EXPORT_SYMBOL(rtdev_get_by_dev);
 EXPORT_SYMBOL(rtdev_get_by_hwaddr);
 EXPORT_SYMBOL(rtdev_add_pack);
 EXPORT_SYMBOL(rtdev_remove_pack);
+/*
 EXPORT_SYMBOL(rtdev_xmit);
 EXPORT_SYMBOL(rtdev_xmit_if);
+*/
 
 EXPORT_SYMBOL(rt_stack_connect);
 EXPORT_SYMBOL(rt_stack_disconnect);

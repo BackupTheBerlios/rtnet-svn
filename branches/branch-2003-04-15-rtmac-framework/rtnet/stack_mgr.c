@@ -89,7 +89,7 @@ static void do_stacktask(int mgr_id)
         struct rtnet_msg msg;
 	struct rtnet_mgr *mgr = (struct rtnet_mgr *)mgr_id;
 
-        rt_printk("RTnet: stack-mgr started\n");
+        rt_printk("RTnet: stack-mgr started. (%p)\n", rt_whoami());
         while(1) {
                 rt_mbx_receive(&(mgr->mbx), &msg, sizeof(struct rtnet_msg));
                 if ( (msg.rtdev) && (msg.msg_type==Rx_PACKET) ) {

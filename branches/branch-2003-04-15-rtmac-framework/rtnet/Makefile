@@ -5,7 +5,7 @@ MOD_SUB_DIRS	:= $(subdirs)
 SUB_DIRS	:= ipv4 ethernet lib
 
 M_OBJS 		:= rtnet.o rtnet_lxrt.o rtnetproxy.o
-MI_OBJS      	:= stack_mgr.o rtdev_mgr.o rtnet_module.o rtskb.o rtnet_dev.o socket.o rtdev.o iovec.o rtnet_init.o 
+MI_OBJS      	:= stack_mgr.o rtdev_mgr.o rtnet_module.o rtskb.o rtnet_dev.o socket.o rtdev.o iovec.o rtnet_init.o rtmac_mgr.o
 MIX_OBJS 	:= rtnet_syms.o
 
 EXTRA_CFLAGS 	:= -I./lib -I./include -I./rtmac/include -g
