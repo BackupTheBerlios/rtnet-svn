@@ -1,24 +1,25 @@
 /***
- * rtnet/socket.c - sockets implementation for rtnet
  *
- * Copyright (C) 1999      Lineo, Inc
- *               1999,2002 David A. Schleef <ds@schleef.org>
- *               2002      Ulrich Marx <marx@kammer.uni-hannover.de>
- *               2003      Jan Kiszka <jan.kiszka@web.de>
+ *  rtnet/socket.c - sockets implementation for rtnet
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ *  Copyright (C) 1999       Lineo, Inc
+ *                1999, 2002 David A. Schleef <ds@schleef.org>
+ *                2002       Ulrich Marx <marx@kammer.uni-hannover.de>
+ *                2003, 2004 Jan Kiszka <jan.kiszka@web.de>
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
  */
 
@@ -28,6 +29,7 @@
 #include <linux/in.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <asm/bitops.h>
 
 #include <rtnet.h>
 #include <rtnet_internal.h>
@@ -41,15 +43,84 @@ static unsigned int socket_rtskbs = DEFAULT_SOCKET_RTSKBS;
 MODULE_PARM(socket_rtskbs, "i");
 MODULE_PARM_DESC(socket_rtskbs, "Default number of realtime socket buffers in socket pools");
 
-static struct rtsocket rt_sockets[RT_SOCKETS];
-static struct rtsocket *free_rtsockets;
-static rtos_spinlock_t socket_base_lock = RTOS_SPIN_LOCK_UNLOCKED;
+const char rtnet_rtdm_driver_name[] =
+    "RTnet " RTNET_VERSION;
+const char rtnet_rtdm_provider_name[] =
+    "(C) 1999-2004 RTnet Development Team, http://rtnet.sf.net";
 
 
 /************************************************************************
  *  internal socket functions                                           *
  ************************************************************************/
 
+/***
+ *  rt_socket_init - initialises a new socket structure
+ */
+int rt_socket_init(struct rtdm_dev_context *context)
+{
+    struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
+
+
+    sock->priority      = SOCK_DEF_PRIO;
+    sock->callback_func = NULL;
+
+    rtskb_queue_init(&sock->incoming);
+
+    rtos_nanosecs_to_time(0, &sock->timeout);
+
+    rtos_spin_lock_init(&sock->param_lock);
+    rtos_event_sem_init(&sock->wakeup_event);
+
+    if (test_bit(RTDM_CREATED_IN_NRT, &context->context_flags))
+        sock->pool_size = rtskb_pool_init(&sock->skb_pool, socket_rtskbs);
+    else
+        sock->pool_size = rtskb_pool_init_rt(&sock->skb_pool, socket_rtskbs);
+
+    if (sock->pool_size < socket_rtskbs) {
+        /* fix statistics */
+        if (sock->pool_size == 0)
+            rtskb_pools--;
+
+        rt_socket_cleanup(context);
+        return -ENOMEM;
+    }
+
+    return 0;
+}
+
+
+
+/***
+ *  rt_socket_cleanup - releases resources allocated for the socket
+ */
+int rt_socket_cleanup(struct rtdm_dev_context *context)
+{
+    struct rtsocket *sock  = (struct rtsocket *)&context->dev_private;
+    unsigned int    rtskbs = sock->pool_size;
+
+
+    rtos_event_sem_delete(&sock->wakeup_event);
+
+    if (sock->pool_size > 0) {
+        if (test_bit(RTDM_CREATED_IN_NRT, &context->context_flags)) {
+            rtskbs = rtskb_pool_shrink(&sock->skb_pool, rtskbs);
+            if ((sock->pool_size -= rtskbs) > 0)
+                return -EAGAIN;
+            rtskb_pool_release(&sock->skb_pool);
+        } else {
+            rtskbs = rtskb_pool_shrink_rt(&sock->skb_pool, rtskbs);
+            if ((sock->pool_size -= rtskbs) > 0)
+                return -EAGAIN;
+            rtskb_pool_release_rt(&sock->skb_pool);
+        }
+    }
+
+    return 0;
+}
+
+
+
+#if 0
 int rt_socket_release(struct rtsocket *sock);
 
 /***
@@ -201,7 +272,7 @@ int rt_socket(int family, int type, int protocol)
     if ((sock = rt_socket_alloc()) == NULL)
         return -ENOMEM;
 
-    sock->type = type;
+//    sock->type = type;
 
     switch (family) {
         /* protocol family PF_INET */
@@ -503,13 +574,14 @@ int rt_socket_callback(int s, int (*func)(int,void *), void *arg)
     rt_socket_dereference(sock);
     return 0;
 }
+#endif
 
 
 
 /***
  *  rt_socket_setsockopt
  */
-int rt_socket_setsockopt(int s, int level, int optname, const void *optval,
+/*int rt_socket_setsockopt(int s, int level, int optname, const void *optval,
                          socklen_t optlen)
 {
     int ret = 0;
@@ -574,35 +646,95 @@ int rt_socket_setsockopt(int s, int level, int optname, const void *optval,
 
     rt_socket_dereference(sock);
     return ret;
+}*/
+
+
+
+/***
+ *  rt_socket_common_ioctl
+ */
+int rt_socket_common_ioctl(struct rtdm_dev_context *context, int call_flags,
+                           int request, void *arg)
+{
+    struct rtsocket         *sock = (struct rtsocket *)&context->dev_private;
+    int                     ret = 0;
+    struct rtnet_callback   *callback = arg;
+
+
+    switch (request) {
+        case RTNET_RTIOC_PRIORITY:
+            sock->priority = *(unsigned int *)arg;
+            break;
+
+        case RTNET_RTIOC_TIMEOUT:
+            rtos_nanosecs_to_time(*(nanosecs_t *)arg, &sock->timeout);
+            break;
+
+        case RTNET_RTIOC_CALLBACK:
+            sock->callback_func = callback->func;
+            sock->callback_arg  = callback->arg;
+            break;
+
+        case RTNET_RTIOC_NONBLOCK:
+            if (*(unsigned int *)arg != 0)
+                set_bit(RT_SOCK_NONBLOCK, &context->context_flags);
+            else
+                clear_bit(RT_SOCK_NONBLOCK, &context->context_flags);
+            break;
+
+        case RTNET_RTIOC_EXTPOOL:
+            if (test_bit(RTDM_CREATED_IN_NRT, &context->context_flags)) {
+                if (!(call_flags & RTDM_NRT_CALL))
+                    return -EACCES;
+                ret = rtskb_pool_extend(&sock->skb_pool,
+                                        *(unsigned int *)arg);
+            } else
+                ret = rtskb_pool_extend_rt(&sock->skb_pool,
+                                           *(unsigned int *)arg);
+            sock->pool_size += ret;
+            break;
+
+        case RTNET_RTIOC_SHRPOOL:
+            if (test_bit(RTDM_CREATED_IN_NRT, &context->context_flags)) {
+                if (!(call_flags & RTDM_NRT_CALL))
+                    return -EACCES;
+                ret = rtskb_pool_shrink(&sock->skb_pool, *(unsigned int *)arg);
+            } else
+                ret = rtskb_pool_shrink_rt(&sock->skb_pool,
+                                           *(unsigned int *)arg);
+            sock->pool_size -= ret;
+            break;
+
+        default:
+            ret = -EOPNOTSUPP;
+            break;
+    }
+
+    return ret;
 }
 
 
 
 /***
- *  rt_socket_ioctl
+ *  rt_socket_if_ioctl
  */
-int rt_socket_ioctl(int s, int request, void *arg)
+int rt_socket_if_ioctl(struct rtdm_dev_context *context, int call_flags,
+                       int request, void *arg)
 {
-    int ret = 0;
-    struct rtsocket *sock;
-    union {
-        struct ifconf ifc;
-        struct ifreq ifr;
-    } *args = arg;
-    struct rtnet_device *rtdev;
-    struct ifreq *cur_ifr;
-    struct sockaddr_in *sin;
-    int i;
-    int size;
+    struct rtnet_device     *rtdev;
+    struct ifreq            *cur_ifr;
+    struct sockaddr_in      *sin;
+    int                     i;
+    int                     size;
+    struct ifconf           *ifc = arg;
+    struct ifreq            *ifr = arg;
+    int                     ret = 0;
 
-
-    if ((sock = rt_socket_lookup(s)) == NULL)
-        return -ENOTSOCK;
 
     switch (request) {
         case SIOCGIFCONF:
             size = 0;
-            cur_ifr = args->ifc.ifc_req;
+            cur_ifr = ifc->ifc_req;
 
             for (i = 1; i <= MAX_RT_DEVICES; i++) {
                 rtdev = rtdev_get_by_index(i);
@@ -613,9 +745,9 @@ int rt_socket_ioctl(int s, int request, void *arg)
                     }
 
                     size += sizeof(struct ifreq);
-                    if (size > args->ifc.ifc_len) {
+                    if (size > ifc->ifc_len) {
                         rtdev_dereference(rtdev);
-                        size = args->ifc.ifc_len;
+                        size = ifc->ifc_len;
                         break;
                     }
 
@@ -630,55 +762,23 @@ int rt_socket_ioctl(int s, int request, void *arg)
                 }
             }
 
-            args->ifc.ifc_len = size;
+            ifc->ifc_len = size;
             break;
 
         case SIOCGIFFLAGS:
-            rtdev = rtdev_get_by_name(args->ifr.ifr_name);
+            rtdev = rtdev_get_by_name(ifr->ifr_name);
             if (rtdev == NULL)
-                ret = -ENODEV;
+                return -ENODEV;
             else {
-                args->ifr.ifr_flags = rtdev->flags;
+                ifr->ifr_flags = rtdev->flags;
                 rtdev_dereference(rtdev);
             }
             break;
 
         default:
             ret = -EOPNOTSUPP;
+            break;
     }
 
-    rt_socket_dereference(sock);
     return ret;
-}
-
-
-
-/************************************************************************
- *  initialisation of rt-socket interface                               *
- ************************************************************************/
-
-/***
- *  rtsocket_init
- */
-void __init rtsockets_init(void)
-{
-    int i;
-
-
-    /* initialise the first socket */
-    rt_sockets[0].list_entry.next = (struct list_head *)&rt_sockets[1];
-    rt_sockets[0].state           = TCP_CLOSE;
-    rt_sockets[0].fd              = 0;
-
-    /* initialise the last socket */
-    rt_sockets[RT_SOCKETS-1].list_entry.next = NULL;
-    rt_sockets[RT_SOCKETS-1].state           = TCP_CLOSE;
-    rt_sockets[RT_SOCKETS-1].fd              = RT_SOCKETS-1;
-
-    for (i = 1; i < RT_SOCKETS-1; i++) {
-        rt_sockets[i].list_entry.next = (struct list_head *)&rt_sockets[i+1];
-        rt_sockets[i].state           = TCP_CLOSE;
-        rt_sockets[i].fd              = i;
-    }
-    free_rtsockets=&rt_sockets[0];
 }

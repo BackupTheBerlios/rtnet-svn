@@ -1,38 +1,62 @@
-/* packet/af_packet.c
+/***
  *
- * RTnet - real-time networking subsystem
- * Copyright (C) 2003 Jan Kiszka <jan.kiszka@web.de>
+ *  packet/af_packet.c
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ *  RTnet - real-time networking subsystem
+ *  Copyright (C) 2003, 2004 Jan Kiszka <jan.kiszka@web.de>
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
  */
 
 #include <linux/if_arp.h> /* ARPHRD_ETHER */
+#include <linux/sched.h>
 
 #include <rtnet_iovec.h>
 #include <rtnet_socket.h>
 #include <stack_mgr.h>
 
 
-int rt_packet_rcv(struct rtskb *skb, struct rtpacket_type *pt);
+/***
+ *  rt_packet_rcv
+ */
+int rt_packet_rcv(struct rtskb *skb, struct rtpacket_type *pt)
+{
+    struct rtsocket *sock = (struct rtsocket *)(((u8 *)pt) -
+                                ((u8 *)&((struct rtsocket *)0)->prot.packet));
+
+    if (((sock->prot.packet.ifindex != 0) &&
+         (sock->prot.packet.ifindex != skb->rtdev->ifindex)) ||
+        (rtskb_acquire(skb, &sock->skb_pool) != 0))
+        kfree_rtskb(skb);
+    else {
+        rtdev_reference(skb->rtdev);
+        rtskb_queue_tail(&sock->incoming, skb);
+        rtos_event_sem_signal(&sock->wakeup_event);
+        if (sock->callback_func)
+            sock->callback_func(rt_socket_context(sock), sock->callback_arg);
+    }
+    return 0;
+}
 
 
 
 /***
  *  rt_packet_bind
  */
-int rt_packet_bind(struct rtsocket *sock, struct sockaddr *addr,
+int rt_packet_bind(struct rtsocket *sock, const struct sockaddr *addr,
                    socklen_t addrlen)
 {
     struct sockaddr_ll   *sll = (struct sockaddr_ll *)addr;
@@ -70,33 +94,131 @@ int rt_packet_bind(struct rtsocket *sock, struct sockaddr *addr,
 
 
 /***
- *  rt_packet_connect
+ *  rt_packet_getsockname
  */
-int rt_packet_connect(struct rtsocket *sock, const struct sockaddr *serv_addr,
-                      socklen_t addrlen)
+int rt_packet_getsockname(struct rtsocket *s, struct sockaddr *addr,
+                          socklen_t *addrlen)
 {
-    return -EOPNOTSUPP;
+    struct sockaddr_ll  *sll = (struct sockaddr_ll*)addr;
+    struct rtnet_device *rtdev;
+
+
+    if (*addrlen < sizeof(struct sockaddr_ll))
+        return -EINVAL;
+
+    sll->sll_family   = AF_PACKET;
+    sll->sll_ifindex  = s->prot.packet.ifindex;
+    sll->sll_protocol = s->protocol;
+
+    rtdev = rtdev_get_by_index(s->prot.packet.ifindex);
+    if (rtdev != NULL) {
+        sll->sll_hatype = rtdev->type;
+        sll->sll_halen  = rtdev->addr_len;
+
+        memcpy(sll->sll_addr, rtdev->dev_addr, rtdev->addr_len);
+
+        rtdev_dereference(rtdev);
+    } else {
+        sll->sll_hatype = 0;
+        sll->sll_halen  = 0;
+    }
+
+    *addrlen = sizeof(struct sockaddr_ll);
+
+    return 0;
 }
 
 
 
 /***
- *  rt_packet_listen
+ * rt_packet_socket - initialize a packet socket
  */
-int rt_packet_listen(struct rtsocket *sock, int backlog)
+int rt_packet_socket(struct rtdm_dev_context *context, int call_flags,
+                     int protocol)
 {
-    return -EOPNOTSUPP;
+    struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
+    int             ret;
+
+
+    if ((ret = rt_socket_init(context)) != 0)
+        return ret;
+
+    sock->prot.packet.packet_type.type = protocol;
+    sock->prot.packet.ifindex          = 0;
+
+    /* if protocol is non-zero, register the packet type */
+    if (protocol != 0) {
+        sock->prot.packet.packet_type.name        = "PACKET_SOCKET";
+        sock->prot.packet.packet_type.handler     = rt_packet_rcv;
+        sock->prot.packet.packet_type.err_handler = NULL;
+
+        if ((ret = rtdev_add_pack(&sock->prot.packet.packet_type)) < 0) {
+            rt_socket_cleanup(context);
+            return ret;
+        }
+    }
+
+    sock->protocol = protocol;
+
+    return 0;
 }
 
 
 
 /***
- *  rt_packet_accept
+ *  rt_packet_close
  */
-int rt_packet_accept(struct rtsocket *sock, struct sockaddr *addr,
-                     socklen_t *addrlen)
+int rt_packet_close(struct rtdm_dev_context *context, int call_flags)
 {
-    return -EOPNOTSUPP;
+    struct rtsocket         *sock = (struct rtsocket *)&context->dev_private;
+    struct rtpacket_type    *pt = &sock->prot.packet.packet_type;
+    struct rtskb            *del;
+    int                     ret = 0;
+
+
+    if (pt->type != 0) {
+        if ((ret = rtdev_remove_pack(pt)) == 0)
+            pt->type = 0;
+    }
+
+    /* free packets in incoming queue */
+    while ((del = rtskb_dequeue(&sock->incoming)) != NULL)
+        kfree_rtskb(del);
+
+    if (ret == 0)
+        ret = rt_socket_cleanup(context);
+
+    return ret;
+}
+
+
+
+/***
+ *  rt_packet_ioctl
+ */
+int rt_packet_ioctl(struct rtdm_dev_context *context, int call_flags,
+                    int request, void *arg)
+{
+    struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
+    struct rtdm_setsockaddr_args *setaddr = arg;
+    struct rtdm_getsockaddr_args *getaddr = arg;
+
+
+    /* fast path for common socket IOCTLs */
+    if (_IOC_TYPE(request) == RTIOC_TYPE_NETWORK)
+        return rt_socket_common_ioctl(context, call_flags, request, arg);
+
+    switch (request) {
+        case RTIOC_BIND:
+            return rt_packet_bind(sock, setaddr->addr, setaddr->addrlen);
+
+        case RTIOC_GETSOCKNAME:
+            return rt_packet_getsockname(sock, getaddr->addr,
+                                         getaddr->addrlen);
+
+        default:
+            return rt_socket_if_ioctl(context, call_flags, request, arg);
+    }
 }
 
 
@@ -104,18 +226,21 @@ int rt_packet_accept(struct rtsocket *sock, struct sockaddr *addr,
 /***
  *  rt_packet_recvmsg
  */
-int rt_packet_recvmsg(struct rtsocket *sock, struct msghdr *msg, size_t len,
-                      int flags)
+ssize_t rt_packet_recvmsg(struct rtdm_dev_context *context, int call_flags,
+                          struct msghdr *msg, int flags)
 {
-    size_t copy_len, real_len;
-    struct rtskb *skb;
-    struct ethhdr *eth;
-    struct sockaddr_ll *sll;
-    int ret;
+    struct rtsocket     *sock = (struct rtsocket *)&context->dev_private;
+    size_t              len   = rt_iovec_len(msg->msg_iov, msg->msg_iovlen);
+    size_t              copy_len;
+    size_t              real_len;
+    struct rtskb        *skb;
+    struct ethhdr       *eth;
+    struct sockaddr_ll  *sll;
+    int                 ret;
 
 
     /* block on receive event */
-    if (((sock->flags & RT_SOCK_NONBLOCK) == 0) &&
+    if (!test_bit(RT_SOCK_NONBLOCK, &context->context_flags) &&
         ((flags & MSG_DONTWAIT) == 0))
         while ((skb = rtskb_dequeue_chain(&sock->incoming)) == NULL) {
             if (!RTOS_TIME_IS_ZERO(&sock->timeout)) {
@@ -178,13 +303,15 @@ int rt_packet_recvmsg(struct rtsocket *sock, struct msghdr *msg, size_t len,
 /***
  *  rt_packet_sendmsg
  */
-int rt_packet_sendmsg(struct rtsocket *sock, const struct msghdr *msg,
-                      size_t len, int flags)
+ssize_t rt_packet_sendmsg(struct rtdm_dev_context *context, int call_flags,
+                          const struct msghdr *msg, int flags)
 {
-    struct sockaddr_ll *sll = (struct sockaddr_ll*)msg->msg_name;
+    struct rtsocket     *sock = (struct rtsocket *)&context->dev_private;
+    size_t              len   = rt_iovec_len(msg->msg_iov, msg->msg_iovlen);
+    struct sockaddr_ll  *sll  = (struct sockaddr_ll*)msg->msg_name;
     struct rtnet_device *rtdev;
-    struct rtskb *rtskb;
-    int ret = 0;
+    struct rtskb        *rtskb;
+    int                 ret = 0;
 
 
     if (flags & MSG_OOB)   /* Mirror BSD error message compatibility */
@@ -252,147 +379,52 @@ err:
 
 
 
-/***
- *  rt_packet_close
- */
-int rt_packet_close(struct rtsocket *sock)
-{
-    struct rtpacket_type *pt = &sock->prot.packet.packet_type;
-    struct rtskb *del;
-    int ret = 0;
+static struct rtdm_device   packet_proto_dev = {
+    struct_version:     RTDM_DEVICE_STRUCT_VER,
 
+    device_flags:       RTDM_PROTOCOL_DEVICE,
+    context_size:       sizeof(struct rtsocket),
 
-    if (pt->type != 0) {
-        if ((ret = rtdev_remove_pack(pt)) == 0)
-            pt->type = 0;
-    }
+    protocol_family:    PF_PACKET,
+    socket_type:        SOCK_DGRAM,
 
-    /* free packets in incoming queue */
-    while ((del = rtskb_dequeue(&sock->incoming)) != NULL)
-        kfree_rtskb(del);
+    socket_rt:          rt_packet_socket,
+    socket_nrt:         rt_packet_socket,
 
-    return ret;
-}
+    ops: {
+        close_rt:       rt_packet_close,
+        close_nrt:      rt_packet_close,
+        ioctl_rt:       rt_packet_ioctl,
+        ioctl_nrt:      rt_packet_ioctl,
+        recvmsg_rt:     rt_packet_recvmsg,
+        sendmsg_rt:     rt_packet_sendmsg
+    },
 
+    device_class:       RTDM_CLASS_NETWORK,
+    device_sub_class:   RTDM_SUBCLASS_RTNET,
+    driver_name:        rtnet_rtdm_driver_name,
+    peripheral_name:    "Packet Socket Interface",
+    provider_name:      rtnet_rtdm_provider_name,
 
-
-/***
- *  rt_packet_setsockopt
- */
-int rt_packet_setsockopt(struct rtsocket *s, int level, int optname,
-                         const void *optval, socklen_t optlen)
-{
-    return -ENOPROTOOPT;
-}
-
-
-
-/***
- *  rt_packet_getsockname
- */
-int rt_packet_getsockname(struct rtsocket *s, struct sockaddr *addr,
-                          socklen_t *addrlen)
-{
-    struct sockaddr_ll  *sll = (struct sockaddr_ll*)addr;
-    struct rtnet_device *rtdev;
-
-
-    if (*addrlen < sizeof(struct sockaddr_ll))
-        return -EINVAL;
-
-    sll->sll_family   = AF_PACKET;
-    sll->sll_ifindex  = s->prot.packet.ifindex;
-    sll->sll_protocol = s->protocol;
-
-    rtdev = rtdev_get_by_index(s->prot.packet.ifindex);
-    if (rtdev != NULL) {
-        sll->sll_hatype = rtdev->type;
-        sll->sll_halen  = rtdev->addr_len;
-
-        memcpy(sll->sll_addr, rtdev->dev_addr, rtdev->addr_len);
-
-        rtdev_dereference(rtdev);
-    } else {
-        sll->sll_hatype = 0;
-        sll->sll_halen  = 0;
-    }
-
-    *addrlen = sizeof(struct sockaddr_ll);
-
-    return 0;
-}
-
-
-
-/***
- *  rt_packet_rcv
- */
-int rt_packet_rcv(struct rtskb *skb, struct rtpacket_type *pt)
-{
-    struct rtsocket *sock = (struct rtsocket *)(((u8 *)pt) -
-                                ((u8 *)&((struct rtsocket *)0)->prot.packet));
-
-    if (((sock->prot.packet.ifindex != 0) &&
-         (sock->prot.packet.ifindex != skb->rtdev->ifindex)) ||
-        (rtskb_acquire(skb, &sock->skb_pool) != 0))
-        kfree_rtskb(skb);
-    else {
-        rtdev_reference(skb->rtdev);
-        rtskb_queue_tail(&sock->incoming, skb);
-        rtos_event_sem_signal(&sock->wakeup_event);
-        if (sock->wakeup != NULL)
-            sock->wakeup(sock->fd, sock->wakeup_arg);
-    }
-    return 0;
-}
-
-
-
-static struct rtsocket_ops rt_packet_socket_ops = {
-    bind:        rt_packet_bind,
-    connect:     rt_packet_connect,
-    listen:      rt_packet_listen,
-    accept:      rt_packet_accept,
-    recvmsg:     rt_packet_recvmsg,
-    sendmsg:     rt_packet_sendmsg,
-    close:       rt_packet_close,
-    setsockopt:  rt_packet_setsockopt,
-    getsockname: rt_packet_getsockname
+    proc_name:          "PACKET_DGRAM"
 };
 
 
-/***
- * rt_packet_socket - initialize a packet socket
- * @sock: socket structure
- * @protocol: protocol id
- */
-int rt_packet_socket(struct rtsocket *sock, int protocol)
+
+int rt_packet_proto_init(void)
 {
-    int ret;
+    return rtdm_dev_register(&packet_proto_dev);
+}
 
 
-    /* only datagram-sockets */
-    if (sock->type != SOCK_DGRAM)
-        return -EAFNOSUPPORT;
 
-    sock->prot.packet.packet_type.type = protocol;
-    sock->prot.packet.ifindex          = 0;
-
-    /* if protocol is non-zero, register the packet type */
-    if (protocol != 0) {
-        sock->prot.packet.packet_type.name        = "PACKET_SOCKET";
-        sock->prot.packet.packet_type.handler     = rt_packet_rcv;
-        sock->prot.packet.packet_type.err_handler = NULL;
-
-        if ((ret = rtdev_add_pack(&sock->prot.packet.packet_type)) < 0)
-            return ret;
+void rt_packet_proto_release(void)
+{
+    while (rtdm_dev_unregister(&packet_proto_dev) == -EAGAIN) {
+        printk("RTnet: waiting for remaining open packet sockets\n");
+        set_current_state(TASK_INTERRUPTIBLE);
+        schedule_timeout(1*HZ); /* sleep 1 second */
     }
-
-    sock->family   = PF_PACKET;
-    sock->protocol = protocol;
-    sock->ops      = &rt_packet_socket_ops;
-
-    return sock->fd;
 }
 
 

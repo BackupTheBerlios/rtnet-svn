@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 1999,2000 Zentropic Computing, LLC
  *                2002 Ulrich Marx <marx@kammer.uni-hannover.de>
- *                2003, 2004 Jan Kiszka <jan.kiszka@web.de>
+ *                2003,2004 Jan Kiszka <jan.kiszka@web.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -38,6 +38,7 @@
 #include <ipv4/ip_sock.h>
 #include <ipv4/protocol.h>
 #include <ipv4/route.h>
+#include <ipv4/udp.h>
 
 
 /***
@@ -60,7 +61,9 @@ static rtos_res_lock_t  udp_socket_base_lock;
  *  lock-free implementation of the port assignment.
  */
 static unsigned int     auto_port_start = 1024;
-static unsigned int     auto_port_mask  = ~(RT_SOCKETS-1);
+static unsigned int     auto_port_mask  = ~(RT_UDP_SOCKETS-1);
+int                     free_ports      = RT_UDP_SOCKETS;
+static u32              port_bitmap[(RT_UDP_SOCKETS + 31) / 32];
 
 MODULE_PARM(auto_port_start, "i");
 MODULE_PARM(auto_port_mask, "i");
@@ -104,20 +107,29 @@ struct rtsocket *rt_udp_v4_lookup(u32 daddr, u16 dport)
  *  @s:     socket
  *  @addr:  local address
  */
-int rt_udp_bind(struct rtsocket *s, struct sockaddr *addr, socklen_t addrlen)
+int rt_udp_bind(struct rtsocket *sock, const struct sockaddr *addr,
+                socklen_t addrlen)
 {
     struct sockaddr_in *usin = (struct sockaddr_in *)addr;
 
-    if ((s->state!=TCP_CLOSE) || (addrlen<(int)sizeof(struct sockaddr_in)) ||
+
+    if ((sock->prot.inet.state != TCP_CLOSE) ||
+        (addrlen < (int)sizeof(struct sockaddr_in)) ||
         ((usin->sin_port & auto_port_mask) == auto_port_start))
         return -EINVAL;
 
+// TO-DO: make this NRT-safe!!!
+    rtos_res_lock(&udp_socket_base_lock);
+
     /* set the source-addr */
-    s->prot.inet.saddr = usin->sin_addr.s_addr;
+    sock->prot.inet.saddr = usin->sin_addr.s_addr;
 
     /* set source port, if not set by user */
-    if((s->prot.inet.sport = usin->sin_port) == 0)
-        s->prot.inet.sport = htons(auto_port_start + (s->fd & (RT_SOCKETS-1)));
+    if ((sock->prot.inet.sport = usin->sin_port) == 0)
+        sock->prot.inet.sport = sock->prot.inet.auto_port;
+
+    rtos_res_unlock(&udp_socket_base_lock);
+// End of TO-DO
 
     return 0;
 }
@@ -127,26 +139,37 @@ int rt_udp_bind(struct rtsocket *s, struct sockaddr *addr, socklen_t addrlen)
 /***
  *  rt_udp_connect
  */
-int rt_udp_connect(struct rtsocket *s, const struct sockaddr *serv_addr, socklen_t addrlen)
+int rt_udp_connect(struct rtsocket *sock, const struct sockaddr *serv_addr,
+                   socklen_t addrlen)
 {
     struct sockaddr_in *usin = (struct sockaddr_in *) serv_addr;
 
-    if ( (s->state!=TCP_CLOSE) || (addrlen < (int)sizeof(struct sockaddr_in)) )
-        return -EINVAL;
-    if ( (usin->sin_family) && (usin->sin_family!=AF_INET) ) {
-        s->prot.inet.saddr = INADDR_ANY;
-        s->prot.inet.daddr = INADDR_ANY;
-        s->state           = TCP_CLOSE;
-        return -EAFNOSUPPORT;
+
+    if (usin->sin_family == AF_UNSPEC) {
+// TO-DO: make this NRT-safe!!!
+        rtos_res_lock(&udp_socket_base_lock);
+
+        sock->prot.inet.saddr = INADDR_ANY;
+        /* Note: The following line differs from standard stacks, and we also
+                 don't remove the socket from the port list. Might get fixed in
+                 the future... */
+        sock->prot.inet.sport = sock->prot.inet.auto_port;
+        sock->prot.inet.daddr = INADDR_ANY;
+        sock->prot.inet.sport = 0;
+        sock->prot.inet.state = TCP_CLOSE;
+
+        rtos_res_unlock(&udp_socket_base_lock);
+// End of TO-DO
     }
-    s->state           = TCP_ESTABLISHED;
-    s->prot.inet.daddr = usin->sin_addr.s_addr;
-    s->prot.inet.dport = usin->sin_port;
 
-#ifdef DEBUG
-    rtos_print("connect socket to %x:%d\n", ntohl(s->prot.inet.daddr),
-               ntohs(s->prot.inet.dport));
-#endif
+    if ((sock->prot.inet.state != TCP_CLOSE) ||
+        (addrlen < (int)sizeof(struct sockaddr_in)) ||
+        (usin->sin_family != AF_INET))
+        return -EINVAL;
+
+    sock->prot.inet.state = TCP_ESTABLISHED;
+    sock->prot.inet.daddr = usin->sin_addr.s_addr;
+    sock->prot.inet.dport = usin->sin_port;
 
     return 0;
 }
@@ -154,23 +177,112 @@ int rt_udp_connect(struct rtsocket *s, const struct sockaddr *serv_addr, socklen
 
 
 /***
- *  rt_udp_listen
+ *  rt_udp_socket - create a new UDP-Socket
+ *  @s: socket
  */
-int rt_udp_listen(struct rtsocket *s, int backlog)
+int rt_udp_socket(struct rtdm_dev_context *context, int call_flags)
 {
-    /* UDP = connectionless */
+    struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
+    int             ret;
+    int             i;
+
+
+    if ((ret = rt_socket_init(context)) != 0)
+        return ret;
+
+    sock->protocol        = IPPROTO_UDP;
+    sock->prot.inet.saddr = INADDR_ANY;
+    sock->prot.inet.state = TCP_CLOSE;
+
+// TO-DO: make this NRT-safe!!!
+    rtos_res_lock(&udp_socket_base_lock);
+
+    /* enforce maximum number of UDP sockets */
+    if (free_ports == 0) {
+        rtos_res_unlock(&udp_socket_base_lock);
+        return -EAGAIN;
+    }
+    free_ports--;
+
+    /* find free auto-port in bitmap */
+    for (i = 0; i < sizeof(port_bitmap)/4; i++)
+        if (port_bitmap[i] != 0xFFFFFFFF)
+            break;
+    ret = ffz(port_bitmap[i]);
+    set_bit(ret, &port_bitmap[i]);
+    sock->prot.inet.auto_port = ret + i*32 + auto_port_start;
+    sock->prot.inet.sport     = sock->prot.inet.auto_port;
+
+    /* add to UDP socket list */
+    list_add_tail(&sock->list_entry, &udp_sockets);
+
+    rtos_res_unlock(&udp_socket_base_lock);
+// End of TO-DO
+
     return 0;
 }
 
 
 
 /***
- *  rt_udp_accept
+ *  rt_udp_close
  */
-int rt_udp_accept(struct rtsocket *s, struct sockaddr *addr, socklen_t *addrlen)
+int rt_udp_close(struct rtdm_dev_context *context, int call_flags)
 {
-    /* UDP = connectionless */
-    return 0;
+    struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
+    struct rtskb    *del;
+    int             port;
+
+
+    sock->prot.inet.state = TCP_CLOSE;
+
+// TO-DO: make this NRT-safe!!!
+    rtos_res_lock(&udp_socket_base_lock);
+
+    if (sock->list_entry.next != NULL) {
+        list_del(&sock->list_entry);
+        sock->list_entry.next = NULL;
+
+        port = sock->prot.inet.auto_port - auto_port_start;
+        clear_bit(port % 32, &port_bitmap[port / 32]);
+    }
+
+    rtos_res_unlock(&udp_socket_base_lock);
+// End of TO-DO
+
+    /* cleanup already collected fragments */
+    rt_ip_frag_invalidate_socket(sock);
+
+    /* free packets in incoming queue */
+    while ((del = rtskb_dequeue(&sock->incoming)) != NULL)
+        kfree_rtskb(del);
+
+    return rt_socket_cleanup(context);
+}
+
+
+
+int rt_udp_ioctl(struct rtdm_dev_context *context, int call_flags, int request,
+                 void *arg)
+{
+    struct rtsocket *sock = (struct rtsocket *)&context->dev_private;
+    struct rtdm_setsockaddr_args *setaddr = arg;
+
+
+    /* fast path for common socket IOCTLs */
+    if (_IOC_TYPE(request) == RTIOC_TYPE_NETWORK)
+        return rt_socket_common_ioctl(context, call_flags, request, arg);
+
+    switch (request) {
+        case RTIOC_BIND:
+            return rt_udp_bind(sock, setaddr->addr, setaddr->addrlen);
+
+        case RTIOC_CONNECT:
+            return rt_udp_connect(sock, setaddr->addr, setaddr->addrlen);
+
+        default:
+            return rt_ip_ioctl(context, call_flags, request, arg);
+    }
 }
 
 
@@ -178,32 +290,38 @@ int rt_udp_accept(struct rtsocket *s, struct sockaddr *addr, socklen_t *addrlen)
 /***
  *  rt_udp_recvmsg
  */
-int rt_udp_recvmsg(struct rtsocket *s, struct msghdr *msg, size_t len, int flags)
+ssize_t rt_udp_recvmsg(struct rtdm_dev_context *context, int call_flags,
+                       struct msghdr *msg, int flags)
 {
-    size_t copied = 0;
-    struct rtskb *skb, *first_skb;
-    size_t block_size;
-    struct udphdr *uh;
-    size_t data_len;
-    struct sockaddr_in *sin;
-    int ret;
+    struct rtsocket     *sock = (struct rtsocket *)&context->dev_private;
+    size_t              len   = rt_iovec_len(msg->msg_iov, msg->msg_iovlen);
+    struct rtskb        *skb;
+    struct rtskb        *first_skb;
+    size_t              copied = 0;
+    size_t              block_size;
+    size_t              data_len;
+    struct udphdr       *uh;
+    struct sockaddr_in  *sin;
+    int                 ret;
 
 
     /* block on receive event */
-    if (((s->flags & RT_SOCK_NONBLOCK) == 0) && ((flags & MSG_DONTWAIT) == 0))
-        while ((skb = rtskb_dequeue_chain(&s->incoming)) == NULL) {
-            if (!RTOS_TIME_IS_ZERO(&s->timeout)) {
-                ret = rtos_event_sem_wait_timed(&s->wakeup_event, &s->timeout);
+    if (!test_bit(RT_SOCK_NONBLOCK, &context->context_flags) &&
+        ((flags & MSG_DONTWAIT) == 0))
+        while ((skb = rtskb_dequeue_chain(&sock->incoming)) == NULL) {
+            if (!RTOS_TIME_IS_ZERO(&sock->timeout)) {
+                ret = rtos_event_sem_wait_timed(&sock->wakeup_event,
+                                                &sock->timeout);
                 if (ret == RTOS_EVENT_TIMEOUT)
                     return -ETIMEDOUT;
             } else
-                ret = rtos_event_sem_wait(&s->wakeup_event);
+                ret = rtos_event_sem_wait(&sock->wakeup_event);
 
             if (RTOS_EVENT_ERROR(ret))
                 return -ENOTSOCK;
         }
     else {
-        skb = rtskb_dequeue_chain(&s->incoming);
+        skb = rtskb_dequeue_chain(&sock->incoming);
         if (skb == NULL)
             return 0;
     }
@@ -260,7 +378,7 @@ int rt_udp_recvmsg(struct rtsocket *s, struct msghdr *msg, size_t len, int flags
         kfree_rtskb(first_skb);
     else {
         __rtskb_push(first_skb, sizeof(struct udphdr));
-        rtskb_queue_head(&s->incoming, first_skb);
+        rtskb_queue_head(&sock->incoming, first_skb);
     }
 
     return copied;
@@ -325,9 +443,12 @@ static int rt_udp_getfrag(const void *p, char *to, unsigned int offset, unsigned
 /***
  *  rt_udp_sendmsg
  */
-int rt_udp_sendmsg(struct rtsocket *s, const struct msghdr *msg, size_t len, int flags)
+ssize_t rt_udp_sendmsg(struct rtdm_dev_context *context, int call_flags,
+                       const struct msghdr *msg, int flags)
 {
-    int                 ulen = len + sizeof(struct udphdr);
+    struct rtsocket     *sock = (struct rtsocket *)&context->dev_private;
+    size_t              len   = rt_iovec_len(msg->msg_iov, msg->msg_iovlen);
+    int                 ulen  = len + sizeof(struct udphdr);
     struct udpfakehdr   ufh;
     struct dest_route   rt;
     u32                 daddr;
@@ -353,16 +474,13 @@ int rt_udp_sendmsg(struct rtsocket *s, const struct msghdr *msg, size_t len, int
         daddr = usin->sin_addr.s_addr;
         dport = usin->sin_port;
     } else {
-        if (s->state != TCP_ESTABLISHED)
+        if (sock->prot.inet.state != TCP_ESTABLISHED)
             return -ENOTCONN;
 
-        daddr = s->prot.inet.daddr;
-        dport = s->prot.inet.dport;
+        daddr = sock->prot.inet.daddr;
+        dport = sock->prot.inet.dport;
     }
 
-#ifdef DEBUG
-    rtos_print("sendmsg to %x:%d\n", ntohl(daddr), ntohs(dport));
-#endif
     if ((daddr==0) || (dport==0))
         return -EINVAL;
 
@@ -372,8 +490,8 @@ int rt_udp_sendmsg(struct rtsocket *s, const struct msghdr *msg, size_t len, int
         return err;
 
     /* check if specified source address fits */
-    if ((s->prot.inet.saddr != INADDR_ANY) &&
-        (s->prot.inet.saddr != rt.rtdev->local_ip)) {
+    if ((sock->prot.inet.saddr != INADDR_ANY) &&
+        (sock->prot.inet.saddr != rt.rtdev->local_ip)) {
         rtdev_dereference(rt.rtdev);
         return -EHOSTUNREACH;
     }
@@ -381,7 +499,7 @@ int rt_udp_sendmsg(struct rtsocket *s, const struct msghdr *msg, size_t len, int
     /* we found a route, remember the routing dest-addr could be the netmask */
     ufh.saddr     = rt.rtdev->local_ip;
     ufh.daddr     = daddr;
-    ufh.uh.source = s->prot.inet.sport;
+    ufh.uh.source = sock->prot.inet.sport;
     ufh.uh.dest   = dport;
     ufh.uh.len    = htons(ulen);
     ufh.uh.check  = 0;
@@ -389,7 +507,7 @@ int rt_udp_sendmsg(struct rtsocket *s, const struct msghdr *msg, size_t len, int
     ufh.iovlen    = msg->msg_iovlen;
     ufh.wcheck    = 0;
 
-    err = rt_ip_build_xmit(s, rt_udp_getfrag, &ufh, ulen, &rt, flags);
+    err = rt_ip_build_xmit(sock, rt_udp_getfrag, &ufh, ulen, &rt, flags);
 
     rtdev_dereference(rt.rtdev);
 
@@ -397,35 +515,6 @@ int rt_udp_sendmsg(struct rtsocket *s, const struct msghdr *msg, size_t len, int
         return len;
     else
         return err;
-}
-
-
-
-/***
- *  rt_udp_close
- */
-int rt_udp_close(struct rtsocket *s)
-{
-    struct rtskb *del;
-
-
-    s->state=TCP_CLOSE;
-
-    rtos_res_lock(&udp_socket_base_lock);
-    if (s->list_entry.next != NULL) {
-        list_del(&s->list_entry);
-        s->list_entry.next = NULL;
-    }
-    rtos_res_unlock(&udp_socket_base_lock);
-
-    /* cleanup already collected fragments */
-    rt_ip_frag_invalidate_socket(s);
-
-    /* free packets in incoming queue */
-    while ((del = rtskb_dequeue(&s->incoming)) != NULL)
-        kfree_rtskb(del);
-
-    return 0;
 }
 
 
@@ -490,8 +579,8 @@ int rt_udp_rcv (struct rtskb *skb)
 
     rtskb_queue_tail(&rtsk->incoming, skb);
     rtos_event_sem_signal(&rtsk->wakeup_event);
-    if (rtsk->wakeup != NULL)
-        rtsk->wakeup(rtsk->fd, rtsk->wakeup_arg);
+    if (rtsk->callback_func)
+        rtsk->callback_func(rt_socket_context(rtsk), rtsk->callback_arg);
 
     return 0;
 }
@@ -508,7 +597,7 @@ void rt_udp_rcv_err (struct rtskb *skb)
 
 
 
-static struct rtsocket_ops rt_udp_socket_ops = {
+/*static struct rtsocket_ops rt_udp_socket_ops = {
     bind:        rt_udp_bind,
     connect:     rt_udp_connect,
     listen:      rt_udp_listen,
@@ -518,29 +607,7 @@ static struct rtsocket_ops rt_udp_socket_ops = {
     close:       rt_udp_close,
     setsockopt:  rt_ip_setsockopt,
     getsockname: rt_ip_getsockname
-};
-
-
-
-/***
- *  rt_udp_socket - create a new UDP-Socket
- *  @s: socket
- */
-int rt_udp_socket(struct rtsocket *s)
-{
-    s->family          = PF_INET;
-    s->protocol        = IPPROTO_UDP;
-    s->ops             = &rt_udp_socket_ops;
-    s->prot.inet.saddr = INADDR_ANY;
-    s->prot.inet.sport = htons(auto_port_start + (s->fd & (RT_SOCKETS-1)));
-
-    /* add to udp-socket-list */
-    rtos_res_lock(&udp_socket_base_lock);
-    list_add_tail(&s->list_entry, &udp_sockets);
-    rtos_res_unlock(&udp_socket_base_lock);
-
-    return s->fd;
-}
+};*/
 
 
 
@@ -562,8 +629,8 @@ static struct rtinet_protocol udp_protocol = {
  */
 void __init rt_udp_init(void)
 {
-    auto_port_start &= (auto_port_mask & 0xFFFF);
-    auto_port_mask  |= 0xFFFF0000;
+    auto_port_start = htons(auto_port_start & (auto_port_mask & 0xFFFF));
+    auto_port_mask  = htons(auto_port_mask | 0xFFFF0000);
 
     rtos_res_lock_init(&udp_socket_base_lock);
     rt_inet_add_protocol(&udp_protocol);
