@@ -24,8 +24,8 @@
 
 static struct rtskb_queue rxqueue;
 
-struct list_head    rt_packets[RTPACKET_HASH_TBL_SIZE];
-rtos_spinlock_t     rt_packets_lock = RTOS_SPIN_LOCK_UNLOCKED;
+struct rtpacket_type *rt_packets[MAX_RT_PROTOCOLS];
+rtos_spinlock_t rt_packets_lock = RTOS_SPIN_LOCK_UNLOCKED;
 
 
 
@@ -35,34 +35,31 @@ rtos_spinlock_t     rt_packets_lock = RTOS_SPIN_LOCK_UNLOCKED;
  */
 int rtdev_add_pack(struct rtpacket_type *pt)
 {
-    struct rtpacket_type    *pt_entry;
-    int                     hash;
-    int                     ret = 0;
-    unsigned long           flags;
+    int hash;
+    unsigned long flags;
 
 
     if (pt->type == htons(ETH_P_ALL))
         return -EINVAL;
 
-    INIT_LIST_HEAD(&pt->list_entry);
-    pt->refcount = 0;
-
-    hash = ntohs(pt->type) & RTPACKET_HASH_KEY_MASK;
+    hash = ntohs(pt->type) & (MAX_RT_PROTOCOLS-1);
 
     rtos_spin_lock_irqsave(&rt_packets_lock, flags);
 
-    list_for_each_entry(pt_entry, &rt_packets[hash], list_entry) {
-        if (unlikely(pt_entry->type == pt->type)) {
-            ret = -EADDRNOTAVAIL;
-            goto unlock_out;
-        }
+    if (rt_packets[hash] == NULL) {
+        rt_packets[hash] = pt;
+
+        pt->refcount = 0;
+
+        rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+
+        return 0;
     }
-    list_add_tail(&pt->list_entry, &rt_packets[hash]);
+    else {
+        rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
 
-  unlock_out:
-    rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
-
-    return ret;
+        return -EADDRNOTAVAIL;
+    }
 }
 
 
@@ -73,8 +70,9 @@ int rtdev_add_pack(struct rtpacket_type *pt)
  */
 int rtdev_remove_pack(struct rtpacket_type *pt)
 {
-    unsigned long   flags;
-    int             ret = 0;
+    int hash;
+    unsigned long flags;
+    int ret = 0;
 
 
     RTNET_ASSERT(pt != NULL, return -EINVAL;);
@@ -82,16 +80,26 @@ int rtdev_remove_pack(struct rtpacket_type *pt)
     if (pt->type == htons(ETH_P_ALL))
         return -EINVAL;
 
+    hash = ntohs(pt->type) & (MAX_RT_PROTOCOLS-1);
+
     rtos_spin_lock_irqsave(&rt_packets_lock, flags);
 
-    if (pt->refcount > 0)
-        ret = -EAGAIN;
-    else
-        list_del(&pt->list_entry);
+    if ((rt_packets[hash] != NULL) &&
+        (rt_packets[hash]->type == pt->type)) {
+        rt_packets[hash] = NULL;
 
-    rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+        if (pt->refcount > 0)
+            ret = -EAGAIN;
 
-    return ret;
+        rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+
+        return ret;
+    }
+    else {
+        rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+
+        return -ENOENT;
+    }
 }
 
 
@@ -149,7 +157,7 @@ static void do_stacktask(int mgr_id)
     struct rtnet_mgr        *mgr = (struct rtnet_mgr *)mgr_id;
     struct rtskb            *skb;
     unsigned short          hash;
-    struct rtpacket_type    *pt_entry;
+    struct rtpacket_type    *pt;
     unsigned long           flags;
     struct rtnet_device     *rtdev;
 
@@ -160,7 +168,6 @@ static void do_stacktask(int mgr_id)
             return;
 
         while (1) {
-          next_packet:
             rtos_spin_lock_irqsave(&rxqueue.lock, flags);
 
             skb = __rtskb_dequeue(&rxqueue);
@@ -176,32 +183,31 @@ static void do_stacktask(int mgr_id)
 
             skb->nh.raw = skb->data;
 
-            hash = ntohs(skb->protocol) & RTPACKET_HASH_KEY_MASK;
+            hash = ntohs(skb->protocol) & (MAX_RT_PROTOCOLS-1);
 
             rtos_spin_lock_irqsave(&rt_packets_lock, flags);
 
-            list_for_each_entry(pt_entry, &rt_packets[hash], list_entry)
-                if (pt_entry->type == skb->protocol) {
-                    pt_entry->refcount++;
-                    rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+            pt = rt_packets[hash];
 
-                    pt_entry->handler(skb, pt_entry);
+            if ((pt != NULL) && (pt->type == skb->protocol)) {
+                pt->refcount++;
+                rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
 
-                    rtos_spin_lock_irqsave(&rt_packets_lock, flags);
-                    pt_entry->refcount--;
-                    rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+                pt->handler(skb, pt);
 
-                    rtdev_dereference(rtdev);
-                    goto next_packet;
-                }
+                rtos_spin_lock_irqsave(&rt_packets_lock, flags);
+                pt->refcount--;
+                rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+            } else {
+                rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
 
-            rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
+                /* don't warn if running in promiscuous mode (RTcap...?) */
+                if ((rtdev->flags & IFF_PROMISC) == 0)
+                    rtos_print("RTnet: unknown layer-3 protocol\n");
 
-            /* don't warn if running in promiscuous mode (RTcap...?) */
-            if ((rtdev->flags & IFF_PROMISC) == 0)
-                rtos_print("RTnet: unknown layer-3 protocol\n");
+                kfree_rtskb(skb);
+            }
 
-            kfree_rtskb(skb);
             rtdev_dereference(rtdev);
         }
     }
@@ -232,13 +238,7 @@ void rt_stack_disconnect (struct rtnet_device *rtdev)
  */
 int rt_stack_mgr_init (struct rtnet_mgr *mgr)
 {
-    int i;
-
-
     rtskb_queue_init(&rxqueue);
-
-    for (i = 0; i < RTPACKET_HASH_TBL_SIZE; i++)
-        INIT_LIST_HEAD(&rt_packets[i]);
 
     rtos_event_sem_init(&mgr->event);
 

@@ -29,7 +29,6 @@
 
 #include <rtnet_sys.h>
 #include <rtmac/rtmac_disc.h>
-#include <rtmac/rtmac_vnic.h>
 #include <rtmac/tdma-v1/tdma_cleanup.h>
 #include <rtmac/tdma-v1/tdma_dev.h>
 #include <rtmac/tdma-v1/tdma_event.h>
@@ -222,8 +221,6 @@ struct rtmac_disc tdma_disc = {
     nrt_packet_tx:  tdma_nrt_packet_tx,
 
     get_mtu:        NULL,
-
-    vnic_xmit:      RTMAC_DEFAULT_VNIC,
 
     attach:         tdma_attach,
     detach:         tdma_detach,

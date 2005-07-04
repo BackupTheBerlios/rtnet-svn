@@ -33,5 +33,3 @@ EXPORT_SYMBOL(rtmac_disc_attach);
 EXPORT_SYMBOL(rtmac_disc_detach);
 
 EXPORT_SYMBOL(rtmac_vnic_set_max_mtu);
-
-EXPORT_SYMBOL(rtmac_vnic_xmit);

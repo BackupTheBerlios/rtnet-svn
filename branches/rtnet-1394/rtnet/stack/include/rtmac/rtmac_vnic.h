@@ -25,7 +25,6 @@
 #ifdef __KERNEL__
 
 #include <linux/init.h>
-#include <linux/netdevice.h>
 
 #include <rtmac/rtmac_disc.h>
 
@@ -34,11 +33,9 @@
 
 int rtmac_vnic_rx(struct rtskb *skb, u16 type);
 
-int rtmac_vnic_xmit(struct sk_buff *skb, struct net_device *dev);
-
 void rtmac_vnic_set_max_mtu(struct rtnet_device *rtdev, unsigned int max_mtu);
 
-int rtmac_vnic_add(struct rtnet_device *rtdev, vnic_xmit_handler vnic_xmit);
+int rtmac_vnic_add(struct rtnet_device *rtdev);
 void rtmac_vnic_unregister(struct rtnet_device *rtdev);
 
 static inline void rtmac_vnic_cleanup(struct rtnet_device *rtdev)
