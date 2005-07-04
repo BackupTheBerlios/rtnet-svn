@@ -210,9 +210,9 @@ static const int multicast_filter_limit = 32;
 
 #define DEFAULT_RX_POOL_SIZE    16
 
-static int cards = INT_MAX;
-MODULE_PARM(cards, "i");
-MODULE_PARM_DESC(cards, "number of cards to be supported");
+static int cards[MAX_UNITS] = { [0 ... (MAX_UNITS-1)] = 1 };
+MODULE_PARM(cards, "1-" __MODULE_STRING(MAX_UNITS) "i");
+MODULE_PARM_DESC(cards, "array of cards to be supported (e.g. 1,0,1)");
 /*** RTnet ***/
 
 /* These identify the driver base version and may not be removed. */
@@ -540,6 +540,7 @@ struct netdev_private {
 	unsigned int mii_if_force_media; /*** RTnet, support for older kernels (e.g. 2.4.19) ***/
 
 	struct rtskb_queue skb_pool; /*** RTnet ***/
+	rtos_irq_t irq_handle;
 };
 
 /*** RTnet ***/
@@ -550,7 +551,7 @@ static void via_rhine_check_duplex(struct rtnet_device *dev);
 /*static void via_rhine_timer(unsigned long data);
 static void via_rhine_tx_timeout(struct net_device *dev);*/
 static int  via_rhine_start_tx(struct rtskb *skb, struct rtnet_device *dev);
-static void via_rhine_interrupt(unsigned int irq, void *dev_instance);
+static RTOS_IRQ_HANDLER_PROTO(via_rhine_interrupt);
 static void via_rhine_tx(struct rtnet_device *dev);
 static void via_rhine_rx(struct rtnet_device *dev, rtos_time_t *time_stamp);
 static void via_rhine_error(struct rtnet_device *dev, int intr_status);
@@ -654,7 +655,7 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 	pci_flags = via_rhine_chip_info[chip_id].pci_flags;
 
 /*** RTnet ***/
-	if (card_idx >= cards)
+	if (cards[card_idx] == 0)
 		goto err_out;
 /*** RTnet ***/
 
@@ -1172,7 +1173,7 @@ static int via_rhine_open(struct rtnet_device *dev) /*** RTnet ***/
 
 /*** RTnet ***/
 	rt_stack_connect(dev, &STACK_manager);
-	i = rtos_irq_request(dev->irq, via_rhine_interrupt, dev);
+	i = rtos_irq_request(&np->irq_handle, dev->irq, via_rhine_interrupt, dev);
 /*** RTnet ***/
 	if (i) {
 		RTNET_MOD_DEC_USE_COUNT;
@@ -1201,7 +1202,7 @@ static int via_rhine_open(struct rtnet_device *dev) /*** RTnet ***/
 	rtnetif_start_queue(dev); /*** RTnet ***/
 
 /*** RTnet ***/
-	rtos_irq_enable(dev->irq);
+	rtos_irq_enable(&np->irq_handle);
 
 	/* Set the timer to check for link beat. */
 #if 0
@@ -1434,9 +1435,9 @@ static int via_rhine_start_tx(struct rtskb *skb, struct rtnet_device *dev) /*** 
 
 /* The interrupt handler does all of the Rx thread work and cleans up
    after the Tx thread. */
-static void via_rhine_interrupt(unsigned int irq, void *dev_instance) /*** RTnet ***/
+static RTOS_IRQ_HANDLER_PROTO(via_rhine_interrupt) /*** RTnet ***/
 {
-	struct rtnet_device *dev = (struct rtnet_device *)dev_instance; /*** RTnet ***/
+	struct rtnet_device *dev = (struct rtnet_device *)RTOS_IRQ_GET_ARG(); /*** RTnet ***/
 	long ioaddr;
 	u32 intr_status;
 	int boguscnt = max_interrupt_work;
@@ -1501,9 +1502,10 @@ static void via_rhine_interrupt(unsigned int irq, void *dev_instance) /*** RTnet
 			   dev->name, readw(ioaddr + IntrStatus));
 
 /*** RTnet ***/
-	rtos_irq_end(irq);
+	rtos_irq_end(&np->irq_handle);
 	if (old_packet_cnt != np->stats.rx_packets)
 		rt_mark_stack_mgr(dev);
+	RTOS_IRQ_RETURN_HANDLED();
 }
 
 /* This routine is logically part of the interrupt handler, but isolated
@@ -1995,7 +1997,7 @@ static int via_rhine_close(struct rtnet_device *dev) /*** RTnet ***/
 	rtos_spin_unlock_irqrestore(&np->lock, flags); /*** RTnet ***/
 
 /*** RTnet ***/
-	if ( (i=rtos_irq_free(dev->irq))<0 )
+	if ( (i=rtos_irq_free(&np->irq_handle))<0 )
 		return i;
 
 	rt_stack_disconnect(dev);

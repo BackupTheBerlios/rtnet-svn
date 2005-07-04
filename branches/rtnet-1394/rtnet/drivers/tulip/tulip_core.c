@@ -128,9 +128,9 @@ int tulip_debug = TULIP_DEBUG;
 int tulip_debug = 1;
 #endif
 
-static int cards = INT_MAX;
-MODULE_PARM(cards, "i");
-MODULE_PARM_DESC(cards, "number of cards to be supported");
+static int cards[MAX_UNITS] = { [0 ... (MAX_UNITS-1)] = 1 };
+MODULE_PARM(cards, "1-" __MODULE_STRING(MAX_UNITS) "i");
+MODULE_PARM_DESC(cards, "array of cards to be supported (e.g. 1,0,1)");
 
 
 
@@ -498,12 +498,13 @@ media_picked:
 static int
 tulip_open(/*RTnet*/struct rtnet_device *rtdev)
 {
+	struct tulip_private *tp = (struct tulip_private *)rtdev->priv;
 	int retval;
 
 	RTNET_MOD_INC_USE_COUNT;
 
-	if ((retval = /*RTnet*/
-	     rtos_irq_request(rtdev->irq, tulip_interrupt, rtdev))) {
+	if ((retval = /*RTnet*/rtos_irq_request(&tp->irq_handle, rtdev->irq,
+	                                        tulip_interrupt, rtdev))) {
 		printk("%s: Unable to install ISR for IRQ %d\n",
 			  rtdev->name,rtdev->irq);
 		RTNET_MOD_DEC_USE_COUNT;
@@ -516,7 +517,7 @@ tulip_open(/*RTnet*/struct rtnet_device *rtdev)
 
 	tulip_up (rtdev);
 
-	rtos_irq_enable(rtdev->irq);
+	rtos_irq_enable(&tp->irq_handle);
 
 	rtnetif_start_queue (rtdev);
 
@@ -802,7 +803,7 @@ static void tulip_down (/*RTnet*/struct rtnet_device *rtdev)
 
 	/*RTnet*/ //MUST_REMOVE_del_timer_sync (&tp->timer);
 
-	rtos_irq_disable(rtdev->irq);
+	rtos_irq_disable(&tp->irq_handle);
 	rtos_spin_lock(&tp->lock); /* sync with IRQ handler on other cpu -JK- */
 
 	/* Disable interrupts by clearing the interrupt mask. */
@@ -851,7 +852,7 @@ static int tulip_close (/*RTnet*/struct rtnet_device *rtdev)
 		printk(KERN_DEBUG "%s: Shutting down ethercard, status was %2.2x.\n",
 			rtdev->name, inl (ioaddr + CSR5));
 
-	rtos_irq_free(rtdev->irq);
+	rtos_irq_free(&tp->irq_handle);
 
 	/* Free all the skbuffs in the Rx queue. */
 	for (i = 0; i < RX_RING_SIZE; i++) {
@@ -1234,7 +1235,7 @@ static void set_rx_mode(/*RTnet*/struct rtnet_device *rtdev)
 }
 #endif /* set_rx_mode */
 
-#ifdef CONFIG_TULIP_MWI
+#ifdef XXX_CONFIG_TULIP_MWI
 static void __devinit tulip_mwi_config (struct pci_dev *pdev,
 					struct net_device *dev)
 {
@@ -1345,7 +1346,7 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 
 	board_idx++;
 
-	if (board_idx >= cards)
+	if (cards[board_idx] == 0)
 		return -ENODEV;
 
 	/*
@@ -1492,7 +1493,7 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 	rtdev->base_addr = ioaddr;
 	rtdev->irq = irq;
 
-#ifdef CONFIG_TULIP_MWI
+#ifdef XXX_CONFIG_TULIP_MWI
 	if (!force_csr0 && (tp->flags & HAS_PCI_MWI))
 		tulip_mwi_config (pdev, rtdev);
 #else

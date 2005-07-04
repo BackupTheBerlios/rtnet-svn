@@ -1,5 +1,5 @@
 /***
- * 8139too-rt.c - Realtime driver for
+ * rt_8139too.c - Realtime driver for
  * for more information, look to end of file or '8139too.c'
  *
  * Copyright (C) 2002      Ulrich Marx <marx@kammer.uni-hannover.de>
@@ -19,8 +19,17 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#define DRV_NAME        "8139too-rt"
-#define DRV_VERSION        "0.9.24-rt0.3"
+ /*
+  * This Version was modified by Fabian Koch
+  * It includes a different implementation of the 'cards' module parameter
+  * we are using an array of integers to determine which cards to use
+  * for RTnet (e.g. cards=0,1,0)
+  *
+  * Thanks to Jan Kiszka for this idea
+  */
+
+#define DRV_NAME            "rt_8139too"
+#define DRV_VERSION         "0.9.24-rt0.4"
 
 #include <linux/config.h>
 #include <linux/module.h>
@@ -43,13 +52,14 @@
 // *** RTnet ***
 #include <rtnet_port.h>
 
+#define MAX_UNITS               8
 #define DEFAULT_RX_POOL_SIZE    16
 
-static int cards = INT_MAX;
+static int cards[MAX_UNITS] = { [0 ... (MAX_UNITS-1)] = 1 };
 static unsigned int rx_pool_size = DEFAULT_RX_POOL_SIZE;
-MODULE_PARM(cards, "i");
+MODULE_PARM(cards, "1-" __MODULE_STRING(MAX_UNITS) "i");
 MODULE_PARM(rx_pool_size, "i");
-MODULE_PARM_DESC(cards, "number of cards to be supported");
+MODULE_PARM_DESC(cards, "array of cards to be supported (e.g. 1,0,1)");
 MODULE_PARM_DESC(rx_pool_size, "number of receive buffers");
 // *** RTnet ***
 
@@ -67,7 +77,6 @@ MODULE_PARM_DESC(rx_pool_size, "number of receive buffers");
 
 /* A few user-configurable values. */
 /* media options */
-#define MAX_UNITS 8
 #if 0
 static int media[MAX_UNITS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int full_duplex[MAX_UNITS] = {-1, -1, -1, -1, -1, -1, -1, -1};
@@ -483,6 +492,7 @@ struct rtl8139_private {
         int time_to_die;
   //        struct mii_if_info mii;
         struct rtskb_queue skb_pool;
+        rtos_irq_t irq_handle;
 };
 
 MODULE_AUTHOR ("Jeff Garzik <jgarzik@mandrakesoft.com>");
@@ -512,7 +522,7 @@ static void mdio_write (struct net_device *dev, int phy_id, int location, int va
 
 static int rtl8139_open (struct rtnet_device *rtdev);
 static int rtl8139_close (struct rtnet_device *rtdev);
-static void rtl8139_interrupt (unsigned int irq, void *rtdev_id);
+static RTOS_IRQ_HANDLER_PROTO(rtl8139_interrupt);
 static int rtl8139_start_xmit (struct rtskb *skb, struct rtnet_device *rtdev);
 
 
@@ -777,7 +787,6 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
 {
         struct rtnet_device *rtdev = NULL;
         struct rtl8139_private *tp;
-        static int cards_found /* = 0 */;
         int i, addr_len;
 #if 0
         int option;
@@ -788,7 +797,7 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
 
         board_idx++;
 
-        if( cards_found >= cards)
+        if( cards[board_idx] == 0)
                 return -ENODEV;
 
         /* when we're built into the kernel, the driver version message
@@ -813,7 +822,6 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
         if ((i=rtl8139_init_board (pdev, &rtdev)) < 0)
                 return i;
 
-        cards_found++;
 
         tp = rtdev->priv;
         ioaddr = tp->mmio_addr;
@@ -1157,7 +1165,8 @@ static int rtl8139_open (struct rtnet_device *rtdev)
 
         rt_stack_connect(rtdev, &STACK_manager);
 
-        retval = rtos_irq_request(rtdev->irq, rtl8139_interrupt, rtdev);
+        retval = rtos_irq_request(&tp->irq_handle, rtdev->irq,
+                                  rtl8139_interrupt, rtdev);
         if (retval)
                 return retval;
 
@@ -1165,7 +1174,7 @@ static int rtl8139_open (struct rtnet_device *rtdev)
         tp->rx_ring = pci_alloc_consistent(tp->pci_dev, RX_BUF_TOT_LEN, &tp->rx_ring_dma);
 
         if (tp->tx_bufs == NULL || tp->rx_ring == NULL) {
-                rtos_irq_free(rtdev->irq);
+                rtos_irq_free(&tp->irq_handle);
                 if (tp->tx_bufs)
                         pci_free_consistent(tp->pci_dev, TX_BUF_TOT_LEN, tp->tx_bufs, tp->tx_bufs_dma);
                 if (tp->rx_ring)
@@ -1182,7 +1191,7 @@ static int rtl8139_open (struct rtnet_device *rtdev)
         rtl8139_init_ring (rtdev);
         rtl8139_hw_start (rtdev);
 
-        rtos_irq_enable(rtdev->irq);
+        rtos_irq_enable(&tp->irq_handle);
 
         RTNET_MOD_INC_USE_COUNT;
 
@@ -1312,7 +1321,7 @@ static int rtl8139_start_xmit (struct rtskb *skb, struct rtnet_device *rtdev)
         unsigned long flags;
         rtos_time_t time;
 
-        rtos_irq_disable(rtdev->irq);
+        rtos_irq_disable(&tp->irq_handle);
 
         /* Calculate the next Tx descriptor entry. */
         entry = tp->cur_tx % NUM_TX_DESC;
@@ -1331,7 +1340,7 @@ static int rtl8139_start_xmit (struct rtskb *skb, struct rtnet_device *rtdev)
         } else {
                 dev_kfree_rtskb(skb);
                 tp->stats.tx_dropped++;
-                rtos_irq_enable(rtdev->irq);
+                rtos_irq_enable(&tp->irq_handle);
                 return 0;
         }
 
@@ -1345,7 +1354,7 @@ static int rtl8139_start_xmit (struct rtskb *skb, struct rtnet_device *rtdev)
         if ((tp->cur_tx - NUM_TX_DESC) == tp->dirty_tx)
                 rtnetif_stop_queue (rtdev);
         rtos_spin_unlock_irqrestore(&tp->lock, flags);
-        rtos_irq_enable(rtdev->irq);
+        rtos_irq_enable(&tp->irq_handle);
         
         dev_kfree_rtskb(skb);
 
@@ -1640,9 +1649,9 @@ static void rtl8139_weird_interrupt (struct rtnet_device *rtdev,
 
 /* The interrupt handler does all of the Rx thread work and cleans up
    after the Tx thread. */
-static void rtl8139_interrupt (unsigned int irq, void *rtdev_id)
+static RTOS_IRQ_HANDLER_PROTO(rtl8139_interrupt)
 {
-        struct rtnet_device *rtdev = (struct rtnet_device *)rtdev_id;
+        struct rtnet_device *rtdev = (struct rtnet_device *)RTOS_IRQ_GET_ARG();
         struct rtl8139_private *tp = rtdev->priv;
 
         int boguscnt = max_interrupt_work;
@@ -1711,7 +1720,7 @@ static void rtl8139_interrupt (unsigned int irq, void *rtdev_id)
                 RTL_W16 (IntrStatus, 0xffff);
         }
 
-        rtos_irq_end(rtdev->irq);
+        rtos_irq_end(&tp->irq_handle);
         rtos_spin_unlock(&tp->lock);
 
         if (saved_status & RxAckBits) {
@@ -1721,6 +1730,8 @@ static void rtl8139_interrupt (unsigned int irq, void *rtdev_id)
         if (saved_status & TxErr) {
                 rtnetif_err_tx(rtdev);
         }
+
+        RTOS_IRQ_RETURN_HANDLED();
 }
 
 
@@ -1735,7 +1746,7 @@ static int rtl8139_close (struct rtnet_device *rtdev)
 
         rtnetif_stop_queue (rtdev);
 
-        if ( (ret=rtos_irq_free(rtdev->irq))<0 )
+        if ( (ret=rtos_irq_free(&tp->irq_handle))<0 )
                 return ret;
 
         spin_lock_irqsave (&tp->lock, flags);

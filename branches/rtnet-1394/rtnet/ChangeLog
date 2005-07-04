@@ -1,3 +1,31 @@
+0.8.2
+- support for fusion 0.7.2..0.7.4 (dropped earlier versions)
+- added userspace support to RTDM layer for fusion
+- added two fusion userspace examples
+- added detach functionality to rtcfg
+- experimental build for ARM platform
+- fixed cleanup bugs of udp sockets
+- fixed MPC drivers
+- RTAI 3.2 support, fixed issues with 3.0..r2
+- fixed bugs in rtnet script
+- improved RT-NIC assignment via "cards" module parameter
+- fixed compilation on 2.6.11 kernels
+- fixed DESTDIR detection in configure
+- API cleanup with respect to packet transmission priorities and channels
+  (i.e. explicit TDMA slot selection)
+- various tiny fixes
+
+
+0.8.1
+- added slot size enforcement to TDMA
+- fusion 0.6.9 support
+- revised stack core for channel-based overloadable MTUs
+- catch CONFIG_REGPARM in kernel configuration
+- revised irq abstraction for clean fusion support
+- minor updates of RTDM driver definitions
+- fixed natsemi cleanup
+- further minor corrections
+
 0.8.0
 - TDMA-V2 implementation
   * multiple slots

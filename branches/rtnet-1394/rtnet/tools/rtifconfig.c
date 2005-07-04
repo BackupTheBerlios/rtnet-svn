@@ -41,9 +41,6 @@
 #define PRINT_FLAG_ALL          1
 #define PRINT_FLAG_INACTIVE     2
 
-/*This is defined in linux/if_arp.h*/
-#define ARPHRD_IEEE1394 24
-
 
 int                     f;
 struct rtnet_core_cmd   cmd;
@@ -95,15 +92,6 @@ void print_dev(void)
                cmd.args.info.dev_addr[0], cmd.args.info.dev_addr[1],
                cmd.args.info.dev_addr[2], cmd.args.info.dev_addr[3],
                cmd.args.info.dev_addr[4], cmd.args.info.dev_addr[5]);
-    //*************for 1394 ***********
-    else if (cmd.args.info.type == ARPHRD_IEEE1394)
-    	printf("IP over 1394   Hardware address: "
-		"%02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X\n",
-               cmd.args.info.dev_addr[0], cmd.args.info.dev_addr[1],
-               cmd.args.info.dev_addr[2], cmd.args.info.dev_addr[3],
-               cmd.args.info.dev_addr[4], cmd.args.info.dev_addr[5],
-	       cmd.args.info.dev_addr[6], cmd.args.info.dev_addr[7]);
-    //************for 1394 ************
     else
         printf("unknown (%X)\n", cmd.args.info.type);
 

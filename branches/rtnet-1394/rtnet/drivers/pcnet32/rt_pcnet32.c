@@ -59,11 +59,12 @@ DRV_NAME ".c:v" DRV_VERSION " " DRV_RELDATE " Jan.Kiszka@web.de\n";
 /*** RTnet ***/
 #include <rtnet_port.h>
 
+#define MAX_UNITS 8	/* More are supported, limit only on options */
 #define DEFAULT_RX_POOL_SIZE    16
 
-static int cards = INT_MAX;
-MODULE_PARM(cards, "i");
-MODULE_PARM_DESC(cards, "number of cards to be supported");
+static int cards[MAX_UNITS] = { [0 ... (MAX_UNITS-1)] = 1 };
+MODULE_PARM(cards, "1-" __MODULE_STRING(MAX_UNITS) "i");
+MODULE_PARM_DESC(cards, "array of cards to be supported (e.g. 1,0,1)");
 /*** RTnet ***/
 
 /*
@@ -77,7 +78,7 @@ static struct pci_device_id pcnet32_pci_tbl[] __devinitdata = {
 
 MODULE_DEVICE_TABLE (pci, pcnet32_pci_tbl);
 
-int cards_found __initdata;
+int cards_found __initdata = -1;
 
 /*
  * VLB I/O addresses
@@ -133,7 +134,6 @@ static unsigned char options_mapping[] = {
     PCNET32_PORT_ASEL			   /* 15 not supported	  */
 };
 
-#define MAX_UNITS 8	/* More are supported, limit only on options */
 static int options[MAX_UNITS];
 static int full_duplex[MAX_UNITS];
 
@@ -335,6 +335,7 @@ struct pcnet32_private {
 	mii:1;				/* mii port available */
     struct rtnet_device	*next; /*** RTnet ***/
     struct mii_if_info mii_if;
+    rtos_irq_t irq_handle;
 };
 
 static void pcnet32_probe_vlbus(void);
@@ -346,7 +347,7 @@ static int  pcnet32_init_ring(struct rtnet_device *);
 static int  pcnet32_start_xmit(struct rtskb *, struct rtnet_device *);
 static int  pcnet32_rx(struct rtnet_device *, rtos_time_t *time_stamp);
 //static void pcnet32_tx_timeout (struct net_device *dev);
-static void pcnet32_interrupt(unsigned int, void *);
+static RTOS_IRQ_HANDLER_PROTO(pcnet32_interrupt);
 static int  pcnet32_close(struct rtnet_device *);
 //static struct net_device_stats *pcnet32_get_stats(struct net_device *);
 //static void pcnet32_set_multicast_list(struct net_device *);
@@ -542,7 +543,8 @@ pcnet32_probe1(unsigned long ioaddr, unsigned int irq_line, int shared,
     u8 promaddr[6];
 
     // *** RTnet ***
-    if (cards_found >= cards)
+    cards_found++;
+    if (cards[cards_found] == 0)
         return -ENODEV;
     // *** RTnet ***
 
@@ -851,7 +853,6 @@ pcnet32_probe1(unsigned long ioaddr, unsigned int irq_line, int shared,
 /*** RTnet ***/
 
     printk(KERN_INFO "%s: registered as %s\n",dev->name, lp->name);
-    cards_found++;
     return 0;
 }
 
@@ -870,11 +871,11 @@ pcnet32_open(struct rtnet_device *dev) /*** RTnet ***/
 
     rt_stack_connect(dev, &STACK_manager);
 
-    i = rtos_irq_request(dev->irq, pcnet32_interrupt, dev);
+    i = rtos_irq_request(&lp->irq_handle, dev->irq, pcnet32_interrupt, dev);
     if (i)
         return i;
 
-    rtos_irq_enable(dev->irq);
+    rtos_irq_enable(&lp->irq_handle);
 /*** RTnet ***/
 
     /* Check for a valid station address */
@@ -1208,10 +1209,9 @@ pcnet32_start_xmit(struct rtskb *skb, struct rtnet_device *dev) /*** RTnet ***/
 }
 
 /* The PCNET32 interrupt handler. */
-static void
-pcnet32_interrupt(unsigned int irq, void *rtdev_id) /*** RTnet ***/
+static RTOS_IRQ_HANDLER_PROTO(pcnet32_interrupt) /*** RTnet ***/
 {
-    struct rtnet_device *dev = (struct rtnet_device *)rtdev_id; /*** RTnet ***/
+    struct rtnet_device *dev = (struct rtnet_device *)RTOS_IRQ_GET_ARG(); /*** RTnet ***/
     struct pcnet32_private *lp;
     unsigned long ioaddr;
     u16 csr0,rap;
@@ -1222,11 +1222,13 @@ pcnet32_interrupt(unsigned int irq, void *rtdev_id) /*** RTnet ***/
 
     rtos_get_time(&time_stamp); /*** RTnet **/
 
+/*** RTnet ***
     if (!dev) {
 	rtos_print (KERN_DEBUG "%s(): irq %d for unknown device\n",
 		__FUNCTION__, irq);
 	return;
     }
+ *** RTnet ***/
 
     ioaddr = dev->base_addr;
     lp = dev->priv;
@@ -1362,11 +1364,13 @@ pcnet32_interrupt(unsigned int irq, void *rtdev_id) /*** RTnet ***/
 	       dev->name, lp->a.read_csr (ioaddr, 0));
 
 /*** RTnet ***/
-    rtos_irq_end(irq);
+    rtos_irq_end(&lp->irq_handle);
     rtos_spin_unlock(&lp->lock);
 
     if (old_packet_cnt != lp->stats.rx_packets)
         rt_mark_stack_mgr(dev);
+
+    RTOS_IRQ_RETURN_HANDLED();
 /*** RTnet ***/
 }
 
@@ -1499,7 +1503,7 @@ pcnet32_close(struct rtnet_device *dev) /*** RTnet ***/
     lp->a.write_bcr (ioaddr, 20, 4);
 
 /*** RTnet ***/
-    if ( (i=rtos_irq_free(dev->irq))<0 )
+    if ( (i=rtos_irq_free(&lp->irq_handle))<0 )
         return i;
 
     rt_stack_disconnect(dev);

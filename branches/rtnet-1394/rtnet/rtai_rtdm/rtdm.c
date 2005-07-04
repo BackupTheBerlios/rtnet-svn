@@ -2,9 +2,9 @@
         rtdm.c  - core driver layer module (RTAI)
 
         Real Time Driver Model
-        Version:    0.5.3
+        Version:    0.6.0
         Copyright:  2003 Joerg Langenberg <joergel-at-gmx.de>
-                    2004 Jan Kiszka <jan.kiszka-at-web.de>
+                    2004, 2005 Jan Kiszka <jan.kiszka-at-web.de>
 
  ***************************************************************************/
 
@@ -36,7 +36,8 @@
 #include <rtnet_config.h>
 
 
-#if defined(CONFIG_RTAI_24) || defined(CONFIG_RTAI_30) || defined(CONFIG_RTAI_31) || defined(CONFIG_RTAI_32)
+#if defined(CONFIG_RTAI_24) || defined(CONFIG_RTAI_30) || \
+    defined(CONFIG_RTAI_31) || defined(CONFIG_RTAI_32)
 /* RTAI 24.1.x and 3.x */
 
 #include <rtai.h>
@@ -59,18 +60,25 @@ static inline int in_nrt_context(void)
 }
 
 
-#elif defined(CONFIG_FUSION_06)
-/* fusion >= 0.6.6 - intermediate solution */
+#elif defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074)
+/* fusion >= 0.7.2 - intermediate solution */
 
 #include <nucleus/heap.h>
 #include <rtai/task.h>
 
 
 #define rt_printk                   printk
-#define rt_spin_lock_irqsave        rthal_spin_lock_irqsave
-#define rt_spin_unlock_irqrestore   rthal_spin_unlock_irqrestore
 #define rt_malloc                   xnmalloc
 #define rt_free                     xnfree
+
+static inline unsigned long rt_spin_lock_irqsave(spinlock_t *lock)
+{
+    unsigned long flags;
+    rthal_spin_lock_irqsave(lock, flags);
+    return flags;
+}
+
+#define rt_spin_unlock_irqrestore(flags, lock)  rthal_spin_unlock_irqrestore(lock, flags)
 
 
 static inline int in_nrt_context(void)
@@ -188,7 +196,7 @@ static struct proc_dir_entry *rtdm_proc_root; /* /proc/rtai/rtdm */
 static int get_name_hash(const char* str)
 {
     int key   = 0;
-    int limit = MAX_DEV_NAME_LENGTH;
+    int limit = RTDM_MAX_DEVNAME_LEN;
 
     while (*str != 0) {
         key += *str++;
@@ -379,6 +387,7 @@ static int create_instance(struct rtdm_device *device,
 
         if (context->device) {
             rt_spin_unlock_irqrestore(flags, &rt_dev_lock);
+            *context_ptr = NULL;
             return -EBUSY;
         }
         context->device = device;
@@ -701,18 +710,18 @@ int rtdm_select(int call_flags, int n, fd_set *readfds, fd_set *writefds, fd_set
 
     /* register wq_element on all sockets marked in readfds */
     for (i=0; i<=n; i++) {
-	if (FD_ISSET(i, &rfds)) {
-	    context = get_context(i);
-	    if (context) {
-		ops = context->ops;
+        if (FD_ISSET(i, &rfds)) {
+            context = get_context(i);
+            if (context) {
+                ops = context->ops;
 #warning what if pollwait_rt is NULL?
-		ops->pollwait_rt(context, &wakeme);
+                ops->pollwait_rt(context, &wakeme);
 #warning what if there is data already available (call poll here)
-	    } else {
-		rt_printk("==> Problem: context == NULL (%s:%d)\n", __FILE__, __LINE__);
-		FD_CLR(i, &rfds);
-	    }
-	}
+            } else {
+                rt_printk("==> Problem: context == NULL (%s:%d)\n", __FILE__, __LINE__);
+                FD_CLR(i, &rfds);
+            }
+        }
     }
 
     /* wait until something happens */
@@ -720,27 +729,27 @@ int rtdm_select(int call_flags, int n, fd_set *readfds, fd_set *writefds, fd_set
 
     /* register wq_element on all sockets marked in rfds */
     for (i=0; i<=n; i++) {
-	if (FD_ISSET(i, &rfds)) {
-	    context = get_context(i);
-	    if (context) {
-		ops = context->ops;
+        if (FD_ISSET(i, &rfds)) {
+            context = get_context(i);
+            if (context) {
+                ops = context->ops;
 #warning what if poll*_rt is NULL?
-		ops->pollfree_rt(context);
+                ops->pollfree_rt(context);
 
-		mask = ops->poll_rt(context);
-		if (mask & POLLIN) {
-		    /* set specific bit in result readfds */
-		    FD_SET(i, &readfds);
-		    ret++;
-		}
+                mask = ops->poll_rt(context);
+                if (mask & POLLIN) {
+                    /* set specific bit in result readfds */
+                    FD_SET(i, &readfds);
+                    ret++;
+                }
 
 #warning It is not nice to unlock the context twice here!
-		RTDM_UNLOCK_CONTEXT(context);
-		RTDM_UNLOCK_CONTEXT(context);
-	    } else {
-		rt_printk("==> Serious problem: context == NULL (%s:%d)\n", __FILE__, __LINE__);
-	    }
-	}
+                RTDM_UNLOCK_CONTEXT(context);
+                RTDM_UNLOCK_CONTEXT(context);
+            } else {
+                rt_printk("==> Serious problem: context == NULL (%s:%d)\n", __FILE__, __LINE__);
+            }
+        }
     }
 
     wq_element_delete(&wakeme);
@@ -762,11 +771,11 @@ int rtdm_select(int call_flags, int n, fd_set *readfds, fd_set *writefds, fd_set
 
 static int rtdm_open_lxrt(const char *path, int oflag)
 {
-    char    krnl_path[MAX_DEV_NAME_LENGTH + 1];
+    char    krnl_path[RTDM_MAX_DEVNAME_LEN + 1];
     int     ret;
 
 
-    ret = strncpy_from_user(krnl_path, path, MAX_DEV_NAME_LENGTH);
+    ret = strncpy_from_user(krnl_path, path, RTDM_MAX_DEVNAME_LEN);
     if (ret >= 0)
         ret = rtdm_open(RTDM_USER_MODE_CALL, krnl_path, oflag);
     return ret;
@@ -851,6 +860,115 @@ static struct rt_fun_entry lxrt_fun_entry[] = {
 };
 
 #endif /* CONFIG_NEWLXRT */
+
+
+
+#if defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074)
+
+static int sys_rtdm_open(struct task_struct *curr, struct pt_regs *regs)
+{
+    char    krnl_path[RTDM_MAX_DEVNAME_LEN + 1];
+    int     ret;
+
+
+    ret = strncpy_from_user(krnl_path, (const char *)__xn_reg_arg1(regs),
+                            RTDM_MAX_DEVNAME_LEN);
+    if (ret >= 0)
+        ret = rtdm_open(RTDM_USER_MODE_CALL, (const char *)__xn_reg_arg1(regs),
+                        __xn_reg_arg2(regs));
+    return ret;
+}
+
+
+
+static int sys_rtdm_socket(struct task_struct *curr, struct pt_regs *regs)
+{
+    return rtdm_socket(RTDM_USER_MODE_CALL, __xn_reg_arg1(regs),
+                       __xn_reg_arg2(regs), __xn_reg_arg3(regs));
+}
+
+
+
+static int sys_rtdm_close(struct task_struct *curr, struct pt_regs *regs)
+{
+    return rtdm_close(RTDM_USER_MODE_CALL, __xn_reg_arg1(regs));
+}
+
+
+
+static int sys_rtdm_ioctl(struct task_struct *curr, struct pt_regs *regs)
+{
+    return rtdm_ioctl(RTDM_USER_MODE_CALL, __xn_reg_arg1(regs),
+                      __xn_reg_arg2(regs), (void *)__xn_reg_arg3(regs));
+}
+
+
+
+static int sys_rtdm_read(struct task_struct *curr, struct pt_regs *regs)
+{
+    return rtdm_read(RTDM_USER_MODE_CALL, __xn_reg_arg1(regs),
+                     (void *)__xn_reg_arg2(regs), __xn_reg_arg3(regs));
+}
+
+
+
+static int sys_rtdm_write(struct task_struct *curr, struct pt_regs *regs)
+{
+    return rtdm_write(RTDM_USER_MODE_CALL, __xn_reg_arg1(regs),
+                      (const void *)__xn_reg_arg2(regs), __xn_reg_arg3(regs));
+}
+
+
+
+static int sys_rtdm_recvmsg(struct task_struct *curr, struct pt_regs *regs)
+{
+    struct msghdr   krnl_msg;
+    int             ret;
+
+
+    ret = copy_from_user(&krnl_msg, (struct msghdr *)__xn_reg_arg2(regs),
+                         sizeof(struct msghdr));
+    if (ret >= 0)
+        ret = rtdm_recvmsg(RTDM_USER_MODE_CALL, __xn_reg_arg1(regs),
+                           (struct msghdr *)__xn_reg_arg2(regs),
+                           __xn_reg_arg3(regs));
+    return ret;
+}
+
+
+
+static int sys_rtdm_sendmsg(struct task_struct *curr, struct pt_regs *regs)
+{
+    struct msghdr   krnl_msg;
+    int             ret;
+
+
+    ret = copy_from_user(&krnl_msg, (struct msghdr *)__xn_reg_arg2(regs),
+                         sizeof(struct msghdr));
+    if (ret >= 0)
+        ret = rtdm_sendmsg(RTDM_USER_MODE_CALL, __xn_reg_arg1(regs),
+                           (struct msghdr *)__xn_reg_arg2(regs),
+                           __xn_reg_arg3(regs));
+    return ret;
+}
+
+
+
+static int rtdm_muxid;
+
+static xnsysent_t rtdm_systab[] = {
+    [_RTDM_OPEN]    = { sys_rtdm_open,    __xn_exec_current },
+    [_RTDM_SOCKET]  = { sys_rtdm_socket,  __xn_exec_current },
+    [_RTDM_CLOSE]   = { sys_rtdm_close,   __xn_exec_current },
+    [_RTDM_IOCTL]   = { sys_rtdm_ioctl,   __xn_exec_current },
+    [_RTDM_READ]    = { sys_rtdm_read,    __xn_exec_current },
+    [_RTDM_WRITE]   = { sys_rtdm_write,   __xn_exec_current },
+    [_RTDM_RECVMSG] = { sys_rtdm_recvmsg, __xn_exec_current },
+    [_RTDM_SENDMSG] = { sys_rtdm_sendmsg, __xn_exec_current },
+};
+
+
+#endif /* CONFIG_FUSION_07* */
 
 
 
@@ -1261,7 +1379,7 @@ int init_module(void)
 #endif
 
 
-    printk("RTDM Version 0.5.3\n");
+    printk("RTDM Version 0.6.0\n");
 
     if (fildes_count > MAX_FILDES) {
         printk("RTDM: fildes_count exceeds %d\n", MAX_FILDES);
@@ -1347,6 +1465,16 @@ int init_module(void)
     }
 #endif /* CONFIG_NEWLXRT */
 
+#if defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074)
+    rtdm_muxid = xnshadow_register_interface("RTDM", RTDM_SKIN_MAGIC,
+        sizeof(rtdm_systab) / sizeof(rtdm_systab[0]), rtdm_systab, NULL);
+    if (rtdm_muxid < 0) {
+        ret = rtdm_muxid;
+        ERR_PK("RTDM : error registering syscall interface\n");
+        goto rem_all;
+    }
+#endif /* CONFIG_FUSION_07* */
+
     return 0;
 
 #ifdef CONFIG_PROC_FS
@@ -1355,7 +1483,8 @@ int init_module(void)
     ret = -EAGAIN;
 #endif /* CONFIG_PROC_FS */
 
-#ifdef CONFIG_NEWLXRT
+#if defined(CONFIG_NEWLXRT) || defined(CONFIG_FUSION_072) || \
+    defined(CONFIG_FUSION_074)
   rem_all:
 #endif
 #ifdef CONFIG_PROC_FS
@@ -1408,6 +1537,10 @@ void cleanup_module(void)
         ((int (*)(void *, int))rt_base_linux_task->task_trap_handler[1])(
             lxrt_fun_entry, RTDM_LXRT_IDX);
 #endif /* CONFIG_NEWLXRT */
+
+#if defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074)
+    xnshadow_unregister_interface(rtdm_muxid);
+#endif /* CONFIG_FUSION_07* */
 
     printk("RTDM: unloaded\n");
     return;

@@ -27,6 +27,7 @@
 #include <linux/module.h>
 
 #include <rtnet_sys.h>
+#include <rtmac/rtmac_vnic.h>
 #include <rtmac/nomac/nomac.h>
 #include <rtmac/nomac/nomac_dev.h>
 #include <rtmac/nomac/nomac_ioctl.h>
@@ -132,6 +133,10 @@ struct rtmac_disc nomac_disc = {
     packet_rx:      nomac_packet_rx,
     rt_packet_tx:   nomac_rt_packet_tx,
     nrt_packet_tx:  nomac_nrt_packet_tx,
+
+    get_mtu:        NULL,
+
+    vnic_xmit:      RTMAC_DEFAULT_VNIC,
 
     attach:         nomac_attach,
     detach:         nomac_detach,

@@ -30,8 +30,10 @@
 */
 
 static const char *version =
-"eepro100-rt.c:1.36-RTnet-0.4 2002-2004 Jan Kiszka <Jan.Kiszka@web.de>\n"
+"eepro100-rt.c:1.36-RTnet-0.6 2002-2005 Jan Kiszka <Jan.Kiszka@web.de>\n"
 "eepro100-rt.c: based on eepro100.c 1.36 by D. Becker, A. V. Savochkin and others\n";
+
+#define final_version
 
 /* A few user-configurable values that apply to all boards.
    First set is undocumented and spelled per Intel recommendations. */
@@ -128,9 +130,11 @@ static int debug = -1;			/* The debug level */
 #include <linux/if_vlan.h>
 #include <rtnet_port.h>
 
-static int cards = INT_MAX;
-MODULE_PARM(cards, "i");
-MODULE_PARM_DESC(cards, "number of cards to be supported");
+#define MAX_UNITS               8
+
+static int cards[MAX_UNITS] = { [0 ... (MAX_UNITS-1)] = 1 };
+MODULE_PARM(cards, "1-" __MODULE_STRING(MAX_UNITS) "i");
+MODULE_PARM_DESC(cards, "array of cards to be supported (e.g. 1,0,1)");
 // *** RTnet ***
 
 MODULE_AUTHOR("Maintainer: Jan Kiszka <Jan.Kiszka@web.de>");
@@ -529,6 +533,7 @@ struct speedo_private {
 	unsigned short phy[2];				/* PHY media interfaces available. */
 	unsigned short advertising;			/* Current PHY advertised caps. */
 	unsigned short partner;				/* Link partner caps. */
+	rtos_irq_t irq_handle;
 };
 
 /* The parameters for a CmdConfigure operation.
@@ -574,7 +579,7 @@ static int speedo_start_xmit(struct rtskb *skb, struct rtnet_device *rtdev);
 static void speedo_refill_rx_buffers(struct rtnet_device *rtdev, int force);
 static int speedo_rx(struct rtnet_device *rtdev, int* packets, rtos_time_t *time_stamp);
 static void speedo_tx_buffer_gc(struct rtnet_device *rtdev);
-static void speedo_interrupt(unsigned int irq, void *rtdev_id);
+static RTOS_IRQ_HANDLER_PROTO(speedo_interrupt);
 static int speedo_close(struct rtnet_device *rtdev);
 //static struct net_device_stats *speedo_get_stats(struct rtnet_device *rtdev);
 //static int speedo_ioctl(struct rtnet_device *rtdev, struct ifreq *rq, int cmd);
@@ -596,14 +601,15 @@ static int __devinit eepro100_init_one (struct pci_dev *pdev,
 	unsigned long ioaddr;
 	int irq;
 	int acpi_idle_state = 0, pm;
-	static int cards_found /* = 0 */;
+	static int cards_found = -1;
 
 	static int did_version /* = 0 */;		/* Already printed version info. */
 	if (speedo_debug > 0  &&  did_version++ == 0)
 		printk(version);
 
 	// *** RTnet ***
-	if (cards_found >= cards)
+	cards_found++;
+	if (cards[cards_found] == 0)
 		goto err_out_none;
 	// *** RTnet ***
 
@@ -650,9 +656,7 @@ static int __devinit eepro100_init_one (struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
-	if (speedo_found1(pdev, ioaddr, cards_found, acpi_idle_state) == 0)
-		cards_found++;
-	else
+	if (speedo_found1(pdev, ioaddr, cards_found, acpi_idle_state) != 0)
 		goto err_out_iounmap;
 
 	return 0;
@@ -1011,7 +1015,8 @@ speedo_open(struct rtnet_device *rtdev)
 	// *** RTnet ***
 	rt_stack_connect(rtdev, &STACK_manager);
 
-	retval = rtos_irq_request(rtdev->irq, speedo_interrupt, rtdev);
+	retval = rtos_irq_request(&sp->irq_handle, rtdev->irq,
+	                          speedo_interrupt, rtdev);
 	if (retval) {
 		RTNET_MOD_DEC_USE_COUNT;
 		return retval;
@@ -1083,7 +1088,7 @@ speedo_open(struct rtnet_device *rtdev)
 // *** RTnet ***
 	/* Enable the device IRQ here, so that no race situation between the setup
 	 * code and the IRQ handler can occure. */
-	rtos_irq_enable(rtdev->irq);
+	rtos_irq_enable(&sp->irq_handle);
 // *** RTnet ***
 
 	return 0;
@@ -1281,8 +1286,13 @@ speedo_init_rx_ring(struct rtnet_device *rtdev)
 		rtskb_reserve(skb, sizeof(struct RxFD));
 		if (last_rxf) {
 			last_rxf->link = cpu_to_le32(sp->rx_ring_dma[i]);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+			pci_dma_sync_single_for_device(sp->pdev, last_rxf_dma,
+					sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#else
 			pci_dma_sync_single(sp->pdev, last_rxf_dma,
 					sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#endif
 		}
 		last_rxf = rxf;
 		last_rxf_dma = sp->rx_ring_dma[i];
@@ -1291,14 +1301,24 @@ speedo_init_rx_ring(struct rtnet_device *rtdev)
 		/* This field unused by i82557. */
 		rxf->rx_buf_addr = 0xffffffff;
 		rxf->count = cpu_to_le32(PKT_BUF_SZ << 16);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+		pci_dma_sync_single_for_device(sp->pdev, sp->rx_ring_dma[i],
+				sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#else
 		pci_dma_sync_single(sp->pdev, sp->rx_ring_dma[i],
 				sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#endif
 	}
 	sp->dirty_rx = (unsigned int)(i - RX_RING_SIZE);
 	/* Mark the last entry as end-of-list. */
 	last_rxf->status = cpu_to_le32(0xC0000002);	/* '2' is flag value only. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+	pci_dma_sync_single_for_device(sp->pdev, sp->rx_ring_dma[RX_RING_SIZE-1],
+			sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#else
 	pci_dma_sync_single(sp->pdev, sp->rx_ring_dma[RX_RING_SIZE-1],
 			sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#endif
 	sp->last_rxf = last_rxf;
 	sp->last_rxf_dma = last_rxf_dma;
 }
@@ -1439,7 +1459,7 @@ speedo_start_xmit(struct rtskb *skb, struct rtnet_device *rtdev)
 
 	/* Prevent interrupts from changing the Tx ring from underneath us. */
 
-	rtos_irq_disable(rtdev->irq);
+	rtos_irq_disable(&sp->irq_handle);
 	rtos_spin_lock(&sp->lock);
 	// *** RTnet ***
 
@@ -1451,7 +1471,7 @@ speedo_start_xmit(struct rtskb *skb, struct rtnet_device *rtdev)
 		sp->tx_full = 1;
 
 		rtos_spin_unlock(&sp->lock);
-		rtos_irq_enable(rtdev->irq);
+		rtos_irq_enable(&sp->irq_handle);
 		// *** RTnet ***
 
 		return 1;
@@ -1491,7 +1511,7 @@ speedo_start_xmit(struct rtskb *skb, struct rtnet_device *rtdev)
 	/* Trigger the command unit resume. */
 	if (rt_wait_for_cmd_done(ioaddr + SCBCmd) != 0) {
 		rtos_spin_unlock(&sp->lock);
-		rtos_irq_enable(rtdev->irq);
+		rtos_irq_enable(&sp->irq_handle);
 
 		return 1;
 	}
@@ -1522,7 +1542,7 @@ speedo_start_xmit(struct rtskb *skb, struct rtnet_device *rtdev)
 
 	// *** RTnet ***
 	rtos_spin_unlock_irqrestore(&sp->lock, flags);
-	rtos_irq_enable(rtdev->irq);
+	rtos_irq_enable(&sp->irq_handle);
 	// *** RTnet ***
 
 	//rtdev->trans_start = jiffies;
@@ -1599,10 +1619,10 @@ static void speedo_tx_buffer_gc(struct rtnet_device *rtdev)
 
 /* The interrupt handler does all of the Rx thread work and cleans up
    after the Tx thread. */
-static void speedo_interrupt(unsigned int irq, void *rtdev_id)
+static RTOS_IRQ_HANDLER_PROTO(speedo_interrupt)
 {
 	// *** RTnet ***
-	struct rtnet_device *rtdev = (struct rtnet_device *)rtdev_id;
+	struct rtnet_device *rtdev = (struct rtnet_device *)RTOS_IRQ_GET_ARG();
 	int packets = 0;
 	rtos_time_t time_stamp;
 	// *** RTnet ***
@@ -1750,10 +1770,10 @@ static void speedo_interrupt(unsigned int irq, void *rtdev_id)
 			   rtdev->name, inw(ioaddr + SCBStatus));
 
 	clear_bit(0, (void*)&sp->in_interrupt);
-	rtos_irq_end(irq);
+	rtos_irq_end(&sp->irq_handle);
 	if (packets > 0)
 		rt_mark_stack_mgr(rtdev);
-	return;
+	RTOS_IRQ_RETURN_HANDLED();
 }
 
 static inline struct RxFD *speedo_rx_alloc(struct rtnet_device *rtdev, int entry)
@@ -1778,8 +1798,13 @@ static inline struct RxFD *speedo_rx_alloc(struct rtnet_device *rtdev, int entry
 	// *** RTnet ***
 	rtskb_reserve(skb, sizeof(struct RxFD));
 	rxf->rx_buf_addr = 0xffffffff;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+	pci_dma_sync_single_for_device(sp->pdev, sp->rx_ring_dma[entry],
+			sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#else
 	pci_dma_sync_single(sp->pdev, sp->rx_ring_dma[entry],
 			sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#endif
 	return rxf;
 }
 
@@ -1792,8 +1817,13 @@ static inline void speedo_rx_link(struct rtnet_device *rtdev, int entry,
 	rxf->count = cpu_to_le32(PKT_BUF_SZ << 16);
 	sp->last_rxf->link = cpu_to_le32(rxf_dma);
 	sp->last_rxf->status &= cpu_to_le32(~0xC0000000);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+	pci_dma_sync_single_for_device(sp->pdev, sp->last_rxf_dma,
+			sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#else
 	pci_dma_sync_single(sp->pdev, sp->last_rxf_dma,
 			sizeof(struct RxFD), PCI_DMA_TODEVICE);
+#endif
 	sp->last_rxf = rxf;
 	sp->last_rxf_dma = rxf_dma;
 }
@@ -1866,8 +1896,13 @@ speedo_rx(struct rtnet_device *rtdev, int* packets, rtos_time_t *time_stamp)
 		int status;
 		int pkt_len;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+		pci_dma_sync_single_for_cpu(sp->pdev, sp->rx_ring_dma[entry],
+			sizeof(struct RxFD), PCI_DMA_FROMDEVICE);
+#else
 		pci_dma_sync_single(sp->pdev, sp->rx_ring_dma[entry],
 			sizeof(struct RxFD), PCI_DMA_FROMDEVICE);
+#endif
 		status = le32_to_cpu(sp->rx_ringp[entry]->status);
 		pkt_len = le32_to_cpu(sp->rx_ringp[entry]->count) & 0x3fff;
 
@@ -1990,7 +2025,7 @@ speedo_close(struct rtnet_device *rtdev)
 	outl(PortPartialReset, ioaddr + SCBPort);
 
 	// *** RTnet ***
-	if ( (i=rtos_irq_free(rtdev->irq))<0 )
+	if ( (i=rtos_irq_free(&sp->irq_handle))<0 )
 		return i;
 
 	rt_stack_disconnect(rtdev);

@@ -105,8 +105,7 @@ int rtcfg_send_frame(struct rtskb *rtskb, struct rtnet_device *rtdev,
 
 
     rtskb->rtdev    = rtdev;
-    rtskb->priority =
-        RTSKB_PRIO_VALUE(QUEUE_MIN_PRIO-1, RTSKB_DEF_NRT_CHANNEL);
+    rtskb->priority = RTCFG_SKB_PRIO;
 
     if (rtdev->hard_header) {
         ret = rtdev->hard_header(rtskb, rtdev, ETH_RTCFG, dest_addr,
@@ -209,8 +208,8 @@ int rtcfg_send_stage_2(struct rtcfg_connection *conn, int send_data)
 
     if (send_data) {
         total_size = conn->stage2_file->size;
-        frag_size  = MIN(rtdev->mtu - sizeof(struct rtcfg_frm_stage_2_cfg),
-                         total_size);
+        frag_size  = MIN(rtdev->get_mtu(rtdev, RTCFG_SKB_PRIO) -
+                         sizeof(struct rtcfg_frm_stage_2_cfg), total_size);
     } else {
         total_size = 0;
         frag_size  = 0;
@@ -260,7 +259,8 @@ int rtcfg_send_stage_2_frag(struct rtcfg_connection *conn)
     if (rtdev == NULL)
         return -ENODEV;
 
-    frag_size = MIN(rtdev->mtu - sizeof(struct rtcfg_frm_stage_2_cfg_frag),
+    frag_size = MIN(rtdev->get_mtu(rtdev, RTCFG_SKB_PRIO) -
+                    sizeof(struct rtcfg_frm_stage_2_cfg_frag),
                     conn->stage2_file->size - conn->cfg_offs);
 
     rtskb_size = rtdev->hard_header_len +
@@ -522,18 +522,18 @@ int __init rtcfg_init_frames(void)
     int ret;
 
 
+    if (rtskb_pool_init(&rtcfg_pool, num_rtskbs) < num_rtskbs)
+        return -ENOMEM;
+
     rtskb_queue_init(&rx_queue);
     rtos_event_sem_init(&rx_event);
 
-    if (rtskb_pool_init(&rtcfg_pool, num_rtskbs) < num_rtskbs) {
-        ret = -ENOMEM;
-        goto error1;
-    }
-
     ret = rtos_task_init(&rx_task, rtcfg_rx_task, 0,
                          RTOS_LOWEST_RT_PRIORITY);
-    if (ret < 0)
+    if (ret < 0) {
+        rtos_event_sem_delete(&rx_event);
         goto error1;
+    }
 
     ret = rtdev_add_pack(&rtcfg_packet_type);
     if (ret < 0)
@@ -542,10 +542,10 @@ int __init rtcfg_init_frames(void)
     return 0;
 
   error2:
+    rtos_event_sem_delete(&rx_event);
     rtos_task_delete(&rx_task);
 
   error1:
-    rtos_event_sem_delete(&rx_event);
     rtskb_pool_release(&rtcfg_pool);
 
     return ret;

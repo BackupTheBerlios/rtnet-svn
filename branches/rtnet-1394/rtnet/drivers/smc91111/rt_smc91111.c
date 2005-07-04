@@ -303,11 +303,10 @@ struct smc_local {
 	int ctl_phy_mask;
 #endif // SMC_DEBUG
 
-	struct rtskb_queue skb_pool;
-
-
 #endif // CONFIG_SYSCTL
 
+	struct rtskb_queue skb_pool;
+	rtos_irq_t irq_handle;
 };
 
 
@@ -379,7 +378,7 @@ static void smc_phy_configure(struct rtnet_device* dev);
 /*
  . Handles the actual interrupt
 */
-static void smc_interrupt(unsigned int irq, void *);
+static RTOS_IRQ_HANDLER_PROTO(smc_interrupt);
 /*
  . This is a separate procedure to handle the receipt of a packet, to
  . leave the interrupt code looking slightly cleaner
@@ -1036,7 +1035,7 @@ int __init smc_findirq( int ioaddr )
 	/* I have to do a STI() here, because this is called from
 	   a routine that does an CLI during this process, making it
 	   rather difficult to get interrupts for auto detection */
-	sti();
+	local_irq_enable();
 
 	cookie = probe_irq_on();
 
@@ -1088,7 +1087,7 @@ int __init smc_findirq( int ioaddr )
 
 	/* clear hardware interrupts again, because that's how it
 	   was when I was called... */
-	cli();
+	local_irq_disable();
 
 	/* and return what I found */
 	return probe_irq_off(cookie);
@@ -1317,7 +1316,8 @@ static int __init smc_probe(struct rtnet_device *dev, int ioaddr )
 	rt_stack_connect(dev, &STACK_manager);
 
 	/* Grab the IRQ */
-    retval = rtos_irq_request(dev->irq, &smc_interrupt, dev);
+    retval = rtos_irq_request(&((struct smc_local *)dev->priv)->irq_handle,
+                              dev->irq, &smc_interrupt, dev);
     if (retval) {
        	  printk("%s: unable to get IRQ %d (irqval=%d).\n",
 		dev->name, dev->irq, retval);
@@ -1438,7 +1438,7 @@ static int smc_open(struct rtnet_device *dev)
 	smc_phy_configure(dev);
 
 	smc_set_multicast_list(dev);
-	rtos_irq_enable(dev->irq);
+	rtos_irq_enable(&lp->irq_handle);
 
 	/*
   		According to Becker, I have to set the hardware address
@@ -1503,9 +1503,9 @@ static void smc_timeout (struct net_device *dev)
  .   and finally restore state.
  .
  ---------------------------------------------------------------------*/
-static void smc_interrupt(unsigned int irq, void * dev_id)
+static RTOS_IRQ_HANDLER_PROTO(smc_interrupt)
 {
-	struct rtnet_device *dev 	= (struct rtnet_device *)dev_id;
+	struct rtnet_device *dev 	= (struct rtnet_device *)RTOS_IRQ_GET_ARG();
 	int ioaddr 		= dev->base_addr;
 	struct smc_local *lp 	= (struct smc_local *)dev->priv;
 
@@ -1523,11 +1523,11 @@ static void smc_interrupt(unsigned int irq, void * dev_id)
 
 	PRINTK3("%s: SMC interrupt started \n", dev->name);
 
-	if (dev == NULL) {
+/*	if (dev == NULL) {
 		rtos_print(KERN_WARNING "%s: irq %d for unknown device.\n",
 			dev->name, irq);
 		return;
-	}
+	}*/
 
 /* will Linux let this happen ??  If not, this costs some speed
 	if ( dev->interrupt ) {
@@ -1656,7 +1656,7 @@ static void smc_interrupt(unsigned int irq, void * dev_id)
 
 	SMC_SELECT_BANK( saved_bank );
 
-	rtos_irq_end(irq);
+	rtos_irq_end(&lp->irq_handle);
 	if (old_packet_cnt != lp->stats.rx_packets)
 		rt_mark_stack_mgr(dev);
 
@@ -1664,7 +1664,7 @@ static void smc_interrupt(unsigned int irq, void * dev_id)
 
 	//dev->interrupt = 0;
 	PRINTK3("%s: Interrupt done\n", dev->name);
-	return;
+	RTOS_IRQ_RETURN_HANDLED();
 }
 
 /*-------------------------------------------------------------
@@ -2064,7 +2064,7 @@ int init_module(void)
 		rt_rtdev_disconnect(devSMC91111);
 		release_region(devSMC91111->base_addr, SMC_IO_EXTENT);
 
-		rtos_irq_free(devSMC91111->irq);
+		rtos_irq_free(&((struct smc_local *)devSMC91111)->irq_handle);
 		rtskb_pool_release(&((struct smc_local *)devSMC91111->priv)->skb_pool);
 
 		rtdev_free(devSMC91111);
@@ -2084,11 +2084,12 @@ void cleanup_module(void)
 	rt_unregister_rtnetdev(devSMC91111);
 	rt_rtdev_disconnect(devSMC91111);
 
-	rtos_irq_free(devSMC91111->irq);
 	release_region(devSMC91111->base_addr, SMC_IO_EXTENT);
 
-	if (devSMC91111->priv)
+	if (devSMC91111->priv) {
+		rtos_irq_free(&((struct smc_local *)devSMC91111->priv)->irq_handle);
 		rtskb_pool_release(&((struct smc_local *)devSMC91111->priv)->skb_pool);
+	}
 
 	rtdev_free(devSMC91111);
 }
@@ -2178,7 +2179,7 @@ static const char smc_info_string[] =
 /*------------------------------------------------------------
  . Sysctl handler for all integer parameters
  .-------------------------------------------------------------*/
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,8)
 static int smc_sysctl_handler(ctl_table *ctl, int write, struct file * filp,
 				void *buffer, size_t *lenp, loff_t *ppos)
 #else
@@ -2413,7 +2414,7 @@ static int smc_sysctl_handler(ctl_table *ctl, int write, struct file * filp,
 	val = *valp;
 
 	// Perform the generic integer operation
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,8)
 	if ((ret = proc_dointvec(ctl, write, filp, buffer, lenp, ppos)) != 0)
 #else
 	if ((ret = proc_dointvec(ctl, write, filp, buffer, lenp)) != 0)
@@ -3924,3 +3925,5 @@ static void smc_phy_interrupt(struct net_device* dev)
 	} // end while
 }
 #endif
+
+MODULE_LICENSE("GPL");

@@ -3,6 +3,10 @@
 # script for loading/unloading RTnet, RTmac/TMDA, and RTcap
 #
 
+prefix="@prefix@"
+RTNETCFG="@sysconfdir@/rtnet.conf"
+
+
 usage() {
     cat << EOF
 Usage:
@@ -124,7 +128,7 @@ start_master() {
 
         OFFSET=$TDMA_OFFSET
         for SLAVE in $TDMA_SLAVES; do
-            echo "$SLAVE_TDMACFG rteth0 slot 0 $OFFSET;ifconfig vnic0 up \$IPADDR \$NETMASK_OPT" | \
+            echo "\$TDMACFG rteth0 slot 0 $OFFSET;ifconfig vnic0 up \$IPADDR \$NETMASK_OPT" | \
                 $RTCFG rteth0 add $SLAVE -stage1 - $STAGE_2_OPT
             let OFFSET=$OFFSET+$TDMA_OFFSET
         done
@@ -218,9 +222,6 @@ start_master() {
 }
 
 
-prefix="@prefix@"
-RTNETCFG="@sysconfdir@/rtnet.conf"
-
 if [ "$1" = "-cf" ]; then
     RTNETCFG="$2"
     shift 2
@@ -251,7 +252,7 @@ case "$1" in
             $RTIFCONFIG rteth0 up $IPADDR $NETMASK_OPT
 
             echo -n "Stage 1: searching for master..."
-            /bin/sh -c "TDMACFG=$TDMACFG;IPADDR=$IPADDR;NETMASK_OPT=$NETMASK_OPT;`$RTCFG rteth0 client -c`"
+            /bin/sh -c "TDMACFG=$TDMACFG;IPADDR=$IPADDR;NETMASK_OPT=\"$NETMASK_OPT\";`$RTCFG rteth0 client -c`"
             echo
 
             echo -n "Stage 2: waiting for other slaves..."

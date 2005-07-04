@@ -2,9 +2,10 @@
         rtdm_driver.h - driver API header (RTAI)
 
         Real Time Driver Model
-        Version:    0.5.3
+        Version:    0.6.0
         Copyright:  2003 Joerg Langenberg <joergel-at-gmx.de>
-                    2004 Jan Kiszka <jan.kiszka-at-web.de>
+                    2004, 2005 Jan Kiszka <jan.kiszka-at-web.de>
+                    2005 Hans-Peter Bock <rtnet@avaapgh.de>
 
  ***************************************************************************/
 
@@ -27,6 +28,8 @@
 
 #ifdef CONFIG_RTNET_RTDM_SELECT
 #include <rtai_sem.h>
+
+#if 1 /* change this to zero, if you are living on the bleeding edge and want to examine waitqueues */
 typedef SEM             wait_queue_primitive_t;
 
 static inline int wq_element_init(wait_queue_primitive_t *wqe)
@@ -50,6 +53,90 @@ static inline int wq_wait(wait_queue_primitive_t *wqe)
     return rt_sem_wait(wqe);
     /* return rt_sem_wait_timed(event, *timeout); */
 }
+
+#else /* 1 */
+
+#include <rtnet_sys_rtai.h> /* needed for rtos_spinlock_t () */
+typedef SEM wait_queue_primitive_t;
+
+struct wait_queue_element;
+
+struct wait_queue_head {
+    struct wait_queue_element   *next;
+    struct wait_queue_element   *last;
+    rtos_spinlock_t             lock;
+};
+
+struct wait_queue_element {
+    struct wait_queue_element   *next, *prev;
+    struct wait_queue_head      *head;
+    wait_queue_primitive_t      *wqp;
+};
+
+static inline void wq_init(struct wait_queue_head *wqh)
+{
+    wqh->next = NULL;
+}
+
+static inline int wq_element_init(struct wait_queue_element *wqe)
+{
+    wqe = rt_malloc(sizeof(struct wait_queue_element));
+    if (wqe) {
+	wqe->next = NULL;
+	wqe->prev = NULL;
+	wqe->head = NULL;
+	wqe->wqp = NULL;
+    }
+    return ((int) wqe); /* this cast is evil */
+}
+
+static inline void wq_add(struct wait_queue_element *wqe,
+			 struct wait_queue_head *wqh,
+			 wait_queue_primitive_t *wqp)
+{
+    wqe->next = NULL;
+    wqe->head = wqh;
+    wqe->wqp = wqp;
+    
+    /* lock wait_queue_list */
+    if (NULL == wqh->next) { /* => list is empty */
+	wqe->prev = NULL;
+	wqh->next = wqe;
+    } else {
+	wqe->prev = wqh->last;
+	wqe->prev->next = wqe;
+    }
+    wqh->last = wqe;
+    /* unlock wait_queue_list */
+}
+
+static inline void wq_remove(struct wait_queue_element *wqe)
+{
+    /* lock wait_queue_list */
+    wqe->prev->next = wqe->next;
+    wqe->next->prev = wqe->prev;
+    /* unlock wait_queue_list */
+}
+
+static inline void wq_element_delete(struct wait_queue_element *wqe)
+{
+    rt_free(wqe);
+    wqe = NULL;
+}
+
+static inline void wq_signal(struct wait_queue_head *wqh)
+{
+    struct wait_queue_element *wqe;
+    /* lock wait_queue_list */
+    wqe = wqh->next;
+    while (NULL != wqe) {
+	rt_sem_signal(wqe->wqp);
+	wqe = wqe->next;
+    }
+    /* unlock wait_queue_list */
+}
+
+#endif /* 1 */
 #endif /* CONFIG_RTNET_RTDM_SELECT */
 
 /* ----------- Device Flags ---------------------------------------------- */
@@ -68,51 +155,84 @@ static inline int wq_wait(wait_queue_primitive_t *wqe)
 #define RTDM_NRT_CALL           0x0002
 
 
-#define RTDM_DEVICE_STRUCT_VER  1
-#define RTDM_CONTEXT_STRUCT_VER 1
+/* ----------- Version Flags --------------------------------------------- */
+#define RTDM_SECURE_DEVICE      0x80000000  /* not supported here */
+
+/* ----------- Structure Versions ---------------------------------------- */
+#define RTDM_DEVICE_STRUCT_VER  2
+#define RTDM_CONTEXT_STRUCT_VER 2
 
 
 struct rtdm_device;
 struct rtdm_dev_context;
 
+
+typedef int     (*open_handler)     (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     int                        oflag);
+
+typedef int     (*socket_handler)   (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     int                        protocol);
+
+typedef int     (*close_handler)    (struct rtdm_dev_context    *context,
+                                     int                        call_flags);
+
+typedef int     (*ioctl_handler)    (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     int                        request,
+                                     void                       *arg);
+
+typedef ssize_t (*read_handler)     (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     void                       *buf,
+                                     size_t                     nbyte);
+
+typedef ssize_t (*write_handler)    (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     const void                 *buf,
+                                     size_t                     nbyte);
+
+typedef ssize_t (*recvmsg_handler)  (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     struct msghdr              *msg,
+                                     int                        flags);
+
+typedef ssize_t (*sendmsg_handler)  (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     const struct msghdr        *msg,
+                                     int                        flags);
+
+
+typedef int     (*rt_handler)       (struct rtdm_dev_context    *context,
+                                     int                        call_flags,
+                                     void                       *arg);
+
+
 struct rtdm_operations {
     /* common operations */
-    int         (*close_rt)   (struct rtdm_dev_context *context,
-                               int call_flags);
-    int         (*close_nrt)  (struct rtdm_dev_context *context,
-                               int call_flags);
-    int         (*ioctl_rt)   (struct rtdm_dev_context *context,
-                               int call_flags, int request, void* arg);
-    int         (*ioctl_nrt)  (struct rtdm_dev_context *context,
-                               int call_flags, int request, void* arg);
+    close_handler               close_rt;
+    close_handler               close_nrt;
+    ioctl_handler               ioctl_rt;
+    ioctl_handler               ioctl_nrt;
 
     /* stream-oriented device operations */
-    ssize_t     (*read_rt)    (struct rtdm_dev_context *context,
-                               int call_flags, void *buf, size_t nbyte);
-    ssize_t     (*read_nrt)   (struct rtdm_dev_context *context,
-                               int call_flags, void *buf, size_t nbyte);
-    ssize_t     (*write_rt)   (struct rtdm_dev_context *context,
-                               int call_flags, const void *buf, size_t nbyte);
-    ssize_t     (*write_nrt)  (struct rtdm_dev_context *context,
-                               int call_flags, const void *buf, size_t nbyte);
+    read_handler                read_rt;
+    read_handler                read_nrt;
+    write_handler               write_rt;
+    write_handler               write_nrt;
 
     /* message-oriented device operations */
-    ssize_t     (*recvmsg_rt) (struct rtdm_dev_context *context,
-                               int call_flags, struct msghdr *msg, int flags);
-    ssize_t     (*recvmsg_nrt)(struct rtdm_dev_context *context,
-                               int call_flags, struct msghdr *msg, int flags);
-    ssize_t     (*sendmsg_rt) (struct rtdm_dev_context *context,
-                               int call_flags, const struct msghdr *msg,
-                               int flags);
-    ssize_t     (*sendmsg_nrt)(struct rtdm_dev_context *context,
-                               int call_flags, const struct msghdr *msg,
-                               int flags);
+    recvmsg_handler             recvmsg_rt;
+    recvmsg_handler             recvmsg_nrt;
+    sendmsg_handler             sendmsg_rt;
+    sendmsg_handler             sendmsg_nrt;
 
 #ifdef CONFIG_RTNET_RTDM_SELECT
     /* event-oriented device operations */
     unsigned int (*poll_rt)   (struct rtdm_dev_context *context); /* , poll_table *wait) */
     ssize_t     (*pollwait_rt)(struct rtdm_dev_context *context,
-			       wait_queue_primitive_t *sem);
+                               wait_queue_primitive_t *sem);
     ssize_t     (*pollfree_rt)(struct rtdm_dev_context *context);
 #endif /* CONFIG_RTNET_RTDM_SELECT */
 };
@@ -133,44 +253,41 @@ struct rtdm_dev_reserved {
 };
 
 struct rtdm_device {
-    int         struct_version;
+    int                         struct_version;
 
-    int         device_flags;
-    size_t      context_size;
+    int                         device_flags;
+    size_t                      context_size;
 
     /* named device identification */
-    char        device_name[MAX_DEV_NAME_LENGTH+1];
+    char                        device_name[RTDM_MAX_DEVNAME_LEN+1];
 
     /* protocol device identification */
-    int         protocol_family;
-    int         socket_type;
+    int                         protocol_family;
+    int                         socket_type;
 
     /* device instance creation */
-    int         (*open_rt)   (struct rtdm_dev_context *context,
-                              int call_flags, int oflag);
-    int         (*open_nrt)  (struct rtdm_dev_context *context,
-                              int call_flags, int oflag);
-    int         (*socket_rt) (struct rtdm_dev_context *context,
-                              int call_flags, int protocol);
-    int         (*socket_nrt)(struct rtdm_dev_context *context,
-                              int call_flags, int protocol);
+    open_handler                open_rt;
+    open_handler                open_nrt;
 
-    struct rtdm_operations ops;
+    socket_handler              socket_rt;
+    socket_handler              socket_nrt;
 
-    int         device_class;
-    int         device_sub_class;
-    const char  *driver_name;
-    const char  *peripheral_name;
-    const char  *provider_name;
+    struct rtdm_operations      ops;
+
+    int                         device_class;
+    int                         device_sub_class;
+    const char                  *driver_name;
+    const char                  *peripheral_name;
+    const char                  *provider_name;
 
     /* /proc entry */
-    const char  *proc_name;
-    struct proc_dir_entry *proc_entry;
+    const char                  *proc_name;
+    struct proc_dir_entry       *proc_entry;
 
-    /* driver-definable value */
-    void        *driver_arg;
+    /* driver-definable id */
+    int                         device_id;
 
-    struct rtdm_dev_reserved reserved;
+    struct rtdm_dev_reserved    reserved;
 };
 
 
@@ -183,3 +300,9 @@ extern int rtdm_dev_unregister(struct rtdm_device* device);
 
 
 #endif /* __RTDM_DRIVER_H */
+
+/*
+ * Local variables:
+ * c-basic-offset: 4
+ * End:
+ */

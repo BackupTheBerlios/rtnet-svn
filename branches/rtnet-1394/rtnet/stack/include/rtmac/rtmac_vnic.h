@@ -25,14 +25,21 @@
 #ifdef __KERNEL__
 
 #include <linux/init.h>
+#include <linux/netdevice.h>
+
+#include <rtmac/rtmac_disc.h>
 
 #define DEFAULT_VNIC_RTSKBS     32
 
 
-extern int rtmac_vnic_rx(struct rtskb *skb, u16 type);
+int rtmac_vnic_rx(struct rtskb *skb, u16 type);
 
-extern int rtmac_vnic_add(struct rtnet_device *rtdev);
-extern void rtmac_vnic_unregister(struct rtnet_device *rtdev);
+int rtmac_vnic_xmit(struct sk_buff *skb, struct net_device *dev);
+
+void rtmac_vnic_set_max_mtu(struct rtnet_device *rtdev, unsigned int max_mtu);
+
+int rtmac_vnic_add(struct rtnet_device *rtdev, vnic_xmit_handler vnic_xmit);
+void rtmac_vnic_unregister(struct rtnet_device *rtdev);
 
 static inline void rtmac_vnic_cleanup(struct rtnet_device *rtdev)
 {
@@ -42,8 +49,8 @@ static inline void rtmac_vnic_cleanup(struct rtnet_device *rtdev)
 }
 
 
-extern int __init rtmac_vnic_module_init(void);
-extern void rtmac_vnic_module_cleanup(void);
+int __init rtmac_vnic_module_init(void);
+void rtmac_vnic_module_cleanup(void);
 
 
 #endif /* __KERNEL__ */

@@ -1,11 +1,11 @@
 /***
  *
- *  include/rtnet_sys_rai.h
+ *  include/rtnet_sys_fusion.h
  *
  *  RTnet - real-time networking subsystem
  *          RTOS abstraction layer - RTAI/fusion version
  *
- *  Copyright (C) 2004 Jan Kiszka <jan.kiszka@web.de>
+ *  Copyright (C) 2004, 2005 Jan Kiszka <jan.kiszka@web.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include <rtai/sem.h>
 #include <rtai/mutex.h>
 #include <rtai/pipe.h>
+#include <rtai/intr.h>
 
 /* basic types */
 typedef struct {
@@ -44,6 +45,8 @@ typedef RT_SEM     rtos_event_sem_t;  /* to signal events (storing) */
 typedef RT_MUTEX   rtos_res_lock_t;   /* resource lock with prio inheritance */
 typedef int        rtos_nrt_signal_t; /* async signal to non-RT world */
 typedef RT_PIPE    rtos_fifo_t;       /* fifo descriptor */
+typedef RT_INTR    rtos_irq_t;        /* handle to requested IRQ */
+typedef rt_isr_t   rtos_irq_handler_t;/* IRQ handler prototype */
 
 #define ALIGN_RTOS_TASK   16  /* RT_TASK requires 16-bytes alignment */
 
@@ -106,9 +109,9 @@ static inline void rtos_time_diff(rtos_time_t *result,
 #define rtos_spin_unlock(lock)      rthal_spin_unlock(lock)
 
 #define rtos_spin_lock_irqsave(lock, flags) \
-    (flags) = rthal_spin_lock_irqsave(lock)
+    rthal_spin_lock_irqsave(lock, flags)
 #define rtos_spin_unlock_irqrestore(lock, flags) \
-    rthal_spin_unlock_irqrestore(flags, lock)
+    rthal_spin_unlock_irqrestore(lock, flags)
 
 #define rtos_local_irqsave(flags)   \
     rthal_local_irq_save(flags)
@@ -123,8 +126,8 @@ static inline void rtos_time_diff(rtos_time_t *result,
 /* RT-tasks */
 #define RTOS_LOWEST_RT_PRIORITY     T_LOPRIO
 #define RTOS_HIGHEST_RT_PRIORITY    T_HIPRIO
-#define RTOS_RAISE_PRIORITY         (-1)
-#define RTOS_LOWER_PRIORITY         (+1)
+#define RTOS_RAISE_PRIORITY         (+1)
+#define RTOS_LOWER_PRIORITY         (-1)
 
 static inline int rtos_task_init(rtos_task_t *task, void (*task_proc)(int),
                                  int arg, int priority)
@@ -217,7 +220,7 @@ static inline void rtos_timer_stop(void)
     rt_timer_stop();
 }
 
-#define rtos_task_wait_period()     rt_task_wait_period()
+#define rtos_task_wait_period(task) rt_task_wait_period()
 #define rtos_busy_sleep(nanosecs)   rt_timer_spin(nanosecs)
 
 static inline void rtos_task_sleep_until(rtos_time_t *wakeup_time)
@@ -275,7 +278,7 @@ static inline void rtos_event_sem_signal(rtos_event_sem_t *event)
 }
 
 
-static inline int rtos_event_wait(rtos_event_sem_t *event)
+static inline int rtos_event_wait(rtos_event_t *event)
 {
     return rt_sem_p(event, TM_INFINITE);
 }
@@ -299,9 +302,9 @@ static inline int rtos_res_lock_init(rtos_res_lock_t *lock)
     return rt_mutex_create(lock, NULL);
 }
 
-static inline int rtos_res_lock_delete(rtos_res_lock_t *lock)
+static inline void rtos_res_lock_delete(rtos_res_lock_t *lock)
 {
-    return rt_mutex_delete(lock);
+    rt_mutex_delete(lock);
 }
 
 
@@ -347,6 +350,8 @@ static inline void rtos_pend_nrt_signal(rtos_nrt_signal_t *nrt_sig)
 
 
 /* Fifo management */
+#if defined(CONFIG_FUSION_072)
+
 static inline int rtos_fifo_create(rtos_fifo_t *fifo, int minor, int size)
 {
     return rt_pipe_open(fifo, minor);
@@ -356,6 +361,20 @@ static inline void rtos_fifo_destroy(rtos_fifo_t *fifo)
 {
     rt_pipe_close(fifo);
 }
+
+#else /* !CONFIG_FUSION_072 */
+
+static inline int rtos_fifo_create(rtos_fifo_t *fifo, int minor, int size)
+{
+    return rt_pipe_create(fifo, NULL, minor);
+}
+
+static inline void rtos_fifo_destroy(rtos_fifo_t *fifo)
+{
+    rt_pipe_delete(fifo);
+}
+
+#endif /* !CONFIG_FUSION_072 */
 
 static inline int rtos_fifo_put(rtos_fifo_t *fifo, void *buf, int size)
 {
@@ -369,31 +388,47 @@ static inline int rtos_fifo_put(rtos_fifo_t *fifo, void *buf, int size)
 
 
 /* IRQ management */
-static inline int rtos_irq_request(unsigned int irq,
-    void (*handler)(unsigned int, void *), void *arg)
+#define RTOS_IRQ_HANDLER_PROTO(name)    int name(xnintr_t *cookie)
+#define RTOS_IRQ_GET_ARG()              (I_DESC(cookie)->private_data)
+#define RTOS_IRQ_RETURN_HANDLED()       return (RT_INTR_HANDLED|RT_INTR_ENABLE)
+#define RTOS_IRQ_RETURN_UNHANDLED()     return 0; /* mask, don't propagate */
+
+static inline int rtos_irq_request(rtos_irq_t *irq_handle, unsigned int irq,
+                                   rtos_irq_handler_t handler, void *arg)
 {
-    return rthal_request_irq(irq, handler, arg);
+    int ret;
+
+    ret = rt_intr_create(irq_handle, irq, handler);
+    irq_handle->private_data = arg;
+    return ret;
 }
 
-static inline int rtos_irq_free(unsigned int irq)
+static inline int rtos_irq_free(rtos_irq_t *irq_handle)
 {
-    return rthal_release_irq(irq);
+    return rt_intr_delete(irq_handle);
 }
 
+static inline void rtos_irq_enable(rtos_irq_t *irq_handle)
+{
+    rt_intr_enable(irq_handle);
+}
 
-#define rtos_irq_enable(irq)        rthal_enable_irq(irq)
-#define rtos_irq_disable(irq)       rthal_disable_irq(irq)
-#define rtos_irq_end(irq)           rthal_enable_irq(irq)
+static inline void rtos_irq_disable(rtos_irq_t *irq_handle)
+{
+    rt_intr_disable(irq_handle);
+}
+
+#define rtos_irq_end(irq_handle)    /* done by returning RT_INTR_ENABLE */
 
 static inline void rtos_irq_release_lock(void)
 {
     rt_task_set_mode(0,T_LOCK,NULL);
-    rthal_sti();
+    rthal_hw_enable();
 }
 
 static inline void rtos_irq_reacquire_lock(void)
 {
-    rthal_cli();
+    rthal_hw_disable();
     rt_task_set_mode(T_LOCK,0,NULL);
 }
 
