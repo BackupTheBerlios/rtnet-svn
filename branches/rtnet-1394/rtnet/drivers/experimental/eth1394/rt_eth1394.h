@@ -27,6 +27,7 @@
 //#include <ieee1394.h>
 #include <rtskb.h>
 #include <linux/netdevice.h>
+#include <api/rtfwapi.h>
 
 /* Register for incoming packets. This is 4096 bytes, which supports up to
  * S3200 (per Table 16-3 of IEEE 1394b-2002). */
@@ -41,6 +42,8 @@
 #define ETHER1394_GASP_VERSION		1
 
 #define ETHER1394_GASP_OVERHEAD (2 * sizeof(quadlet_t))  /* GASP header overhead */
+
+#define ETH1394_BC_CHANNEL 31
 
 #define ALL_NODES	0x003f //stolen from ieee1394_types.h
 /* Node set == 64 */
@@ -69,7 +72,7 @@ struct eth1394_priv {
 	spinlock_t lock;		/* Private lock			 */
 	int broadcast_channel;		/* Async stream Broadcast Channel */
 	enum eth1394_bc_states bc_state; /* broadcast channel state	 */
-	void *iso;		/* Async stream recv handle	 */
+	struct hpsb_iso_config isoconfig;
 	struct pdg_list pdg[ALL_NODES]; /* partial RX datagram lists     */
 	int dgl[NODE_SET];              /* Outgoing datagram label per node */
 	
@@ -236,6 +239,7 @@ struct eth1394_arp {
 
 /* This is our task struct. It's used for the packet complete callback.  */
 struct packet_task {
+	struct list_head lh;
 	struct rtskb *skb;
 	int outstanding_pkts;
 	eth1394_tx_type tx_type;
