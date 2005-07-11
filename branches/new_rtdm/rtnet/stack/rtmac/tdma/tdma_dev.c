@@ -3,8 +3,8 @@
  *  rtmac/tdma/tdma_dev.c
  *
  *  RTmac - real-time networking media access control subsystem
- *  Copyright (C) 2002       Marc Kleine-Budde <kleine-budde@gmx.de>,
- *                2003, 2004 Jan Kiszka <Jan.Kiszka@web.de>
+ *  Copyright (C) 2002      Marc Kleine-Budde <kleine-budde@gmx.de>,
+ *                2003-2005 Jan Kiszka <Jan.Kiszka@web.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -36,11 +36,11 @@ static int tdma_dev_openclose(void)
 
 
 
-static int tdma_dev_ioctl(struct rtdm_dev_context *context, int call_flags,
-                          int request, void *arg)
+static int tdma_dev_ioctl(struct rtdm_dev_context *context,
+                          rtdm_user_info_t *user_info, int request, void *arg)
 {
     struct tdma_priv    *tdma;
-    rtos_time_t         offset;
+    nanosecs_t          offset;
     unsigned long       flags;
 
 
@@ -53,20 +53,18 @@ static int tdma_dev_ioctl(struct rtdm_dev_context *context, int call_flags,
             offset = tdma->clock_offset;
             rtos_spin_unlock_irqrestore(&tdma->lock, flags);
 
-            *(__s64 *)arg = rtos_time_to_nanosecs(&offset);
+            *(__s64 *)arg = offset;
             return 0;
 
         case RTMAC_RTIOC_WAITONCYCLE:
-            if (call_flags & RTDM_NRT_CALL)
+            if (!rtdm_in_rt_context())
                 return -EACCES;
 
             if ((*(int *)arg != RTMAC_WAIT_ON_DEFAULT) &&
                 (*(int *)arg != TDMA_WAIT_ON_SYNC))
                 return -EINVAL;
 
-            if (RTOS_EVENT_ERROR(rtos_event_wait(&tdma->sync_event)))
-                return -ENODEV;
-            return 0;
+            return rtos_event_wait(&tdma->sync_event, 0);
 
         default:
             return -ENOTTY;
@@ -90,15 +88,11 @@ int tdma_dev_init(struct rtnet_device *rtdev, struct tdma_priv *tdma)
         (pos >= rtdev->name) && ((*pos) >= '0') && (*pos <= '9'); pos--);
     strncat(tdma->api_device.device_name+4, pos+1, IFNAMSIZ-4);
 
-    tdma->api_device.open_rt  =
-        (int (*)(struct rtdm_dev_context *, int, int))tdma_dev_openclose;
-    tdma->api_device.open_nrt =
-        (int (*)(struct rtdm_dev_context *, int, int))tdma_dev_openclose;
+    tdma->api_device.open_rt  = (rtdm_open_handler_t)tdma_dev_openclose;
+    tdma->api_device.open_nrt = (rtdm_open_handler_t)tdma_dev_openclose;
 
-    tdma->api_device.ops.close_rt  =
-        (int (*)(struct rtdm_dev_context *, int))tdma_dev_openclose;
-    tdma->api_device.ops.close_nrt =
-        (int (*)(struct rtdm_dev_context *, int))tdma_dev_openclose;
+    tdma->api_device.ops.close_rt  = (rtdm_close_handler_t)tdma_dev_openclose;
+    tdma->api_device.ops.close_nrt = (rtdm_close_handler_t)tdma_dev_openclose;
 
     tdma->api_device.ops.ioctl_rt  = tdma_dev_ioctl;
     tdma->api_device.ops.ioctl_nrt = tdma_dev_ioctl;
@@ -111,7 +105,7 @@ int tdma_dev_init(struct rtnet_device *rtdev, struct tdma_priv *tdma)
                                         RTNET_PACKAGE_VERSION ")";
     tdma->api_device.peripheral_name  = "TDMA API";
     tdma->api_device.provider_name    =
-        "(C) 2002-2004 RTnet Development Team, http://rtnet.sf.net";
+        "(C) 2002-2005 RTnet Development Team, http://rtnet.sf.net";
 
     return rtdm_dev_register(&tdma->api_device);
 }

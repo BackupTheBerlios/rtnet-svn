@@ -183,7 +183,7 @@ static int                  open_fildes;    /* used file descriptors */
 static int                  name_hash_key_mask;
 static int                  proto_hash_key_mask;
 
-#ifdef CONFIG_NEWLXRT
+#ifdef CONFIG_RTNET_LXRT
 static RT_TASK              *rt_base_linux_task; /* for LXRT registering */
 #endif
 
@@ -767,7 +767,7 @@ int rtdm_select(int call_flags, int n, fd_set *readfds, fd_set *writefds, fd_set
 #endif /* CONFIG_RTNET_RTDM_SELECT */
 
 
-#ifdef CONFIG_NEWLXRT
+#ifdef CONFIG_RTNET_LXRT
 
 static int rtdm_open_lxrt(const char *path, int oflag)
 {
@@ -859,7 +859,7 @@ static struct rt_fun_entry lxrt_fun_entry[] = {
     [_RTDM_SENDMSG] = {0, rtdm_sendmsg_lxrt}
 };
 
-#endif /* CONFIG_NEWLXRT */
+#endif /* CONFIG_RTNET_LXRT */
 
 
 
@@ -1371,7 +1371,7 @@ int init_module(void)
 {
     int                     ret = 0;
     int                     i;
-#ifdef CONFIG_NEWLXRT
+#ifdef CONFIG_RTNET_LXRT
     RT_TASK                 *rt_linux_task[NR_RT_CPUS];
 #endif
 #ifdef CONFIG_PROC_FS
@@ -1452,7 +1452,7 @@ int init_module(void)
     proc_entry->read_proc = proc_read_fildes;
 #endif /* CONFIG_PROC_FS */
 
-#ifdef CONFIG_NEWLXRT
+#ifdef CONFIG_RTNET_LXRT
     /* Initialise LXRT function table if LXRT is available */
     rt_base_linux_task = rt_get_base_linux_task(rt_linux_task);
     if (rt_base_linux_task->task_trap_handler[0]) {
@@ -1463,7 +1463,7 @@ int init_module(void)
             goto rem_all;
         }
     }
-#endif /* CONFIG_NEWLXRT */
+#endif /* CONFIG_RTNET_LXRT */
 
 #if defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074)
     rtdm_muxid = xnshadow_register_interface("RTDM", RTDM_SKIN_MAGIC,
@@ -1483,7 +1483,7 @@ int init_module(void)
     ret = -EAGAIN;
 #endif /* CONFIG_PROC_FS */
 
-#if defined(CONFIG_NEWLXRT) || defined(CONFIG_FUSION_072) || \
+#if defined(CONFIG_RTNET_LXRT) || defined(CONFIG_FUSION_072) || \
     defined(CONFIG_FUSION_074)
   rem_all:
 #endif
@@ -1531,12 +1531,12 @@ void cleanup_module(void)
     kfree(rtdm_named_devices);
     kfree(rtdm_protocol_devices);
 
-#ifdef CONFIG_NEWLXRT
+#ifdef CONFIG_RTNET_LXRT
     /* unregister LXRT functions */
     if (rt_base_linux_task->task_trap_handler[1])
         ((int (*)(void *, int))rt_base_linux_task->task_trap_handler[1])(
             lxrt_fun_entry, RTDM_LXRT_IDX);
-#endif /* CONFIG_NEWLXRT */
+#endif /* CONFIG_RTNET_LXRT */
 
 #if defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074)
     xnshadow_unregister_interface(rtdm_muxid);

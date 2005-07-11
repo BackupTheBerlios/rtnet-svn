@@ -24,7 +24,7 @@
 #ifndef __RTMAC_H_
 #define __RTMAC_H_
 
-#include <rtdm.h>
+#include <rtdm/rtdm.h>
 
 
 #ifndef RTIOC_TYPE_RTMAC
