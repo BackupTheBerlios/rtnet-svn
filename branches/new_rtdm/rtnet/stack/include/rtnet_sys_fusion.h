@@ -164,7 +164,7 @@ static inline void rtos_timer_stop(void)
 #define RTOS_IRQ_RETURN_UNHANDLED()         return 0 /* mask, don't propgt. */
 
 #define rtos_irq_request(irq_handle, irq_no, handler, arg)  \
-    rtdm_irq_request(irq_handle, irq_no, handler, arg)
+    rtdm_irq_request(irq_handle, irq_no, handler, 0, NULL, arg)
 #define rtos_irq_free(irq_handle)           rtdm_irq_free(irq_handle)
 #define rtos_irq_enable(irq_handle)         rtdm_irq_enable(irq_handle)
 #define rtos_irq_disable(irq_handle)        rtdm_irq_disable(irq_handle)
