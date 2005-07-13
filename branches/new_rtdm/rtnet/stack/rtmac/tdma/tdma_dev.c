@@ -3,7 +3,7 @@
  *  rtmac/tdma/tdma_dev.c
  *
  *  RTmac - real-time networking media access control subsystem
- *  Copyright (C) 2002      Marc Kleine-Budde <kleine-budde@gmx.de>,
+ *  Copyright (C) 2002      Marc Kleine-Budde <kleine-budde@gmx.de>
  *                2003-2005 Jan Kiszka <Jan.Kiszka@web.de>
  *
  *  This program is free software; you can redistribute it and/or modify

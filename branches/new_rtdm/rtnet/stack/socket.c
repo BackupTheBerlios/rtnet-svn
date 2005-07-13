@@ -48,7 +48,7 @@ MODULE_PARM_DESC(socket_rtskbs, "Default number of realtime socket buffers in so
 const char rtnet_rtdm_driver_name[] =
     "RTnet " RTNET_PACKAGE_VERSION;
 const char rtnet_rtdm_provider_name[] =
-    "(C) 1999-2004 RTnet Development Team, http://rtnet.sf.net";
+    "(C) 1999-2005 RTnet Development Team, http://rtnet.sf.net";
 
 
 /************************************************************************
