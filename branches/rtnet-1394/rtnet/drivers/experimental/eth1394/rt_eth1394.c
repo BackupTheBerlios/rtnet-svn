@@ -98,22 +98,22 @@ MODULE_PARM_DESC(max_partial_datagrams,
 static int max_partial_datagrams = 25;
 
 
-static int ether1394_header(struct rtskb *skb, struct rtnet_device *dev,
+static int eth1394_header(struct rtskb *skb, struct rtnet_device *dev,
 			    unsigned short type, void *daddr, void *saddr,
 			    unsigned len);
-static int ether1394_rebuild_header(struct rtskb *skb);
-static int ether1394_header_parse(struct rtskb *skb, unsigned char *haddr);
-static int ether1394_header_cache(struct neighbour *neigh, struct hh_cache *hh);
-static void ether1394_header_cache_update(struct hh_cache *hh,
+static int eth1394_rebuild_header(struct rtskb *skb);
+static int eth1394_header_parse(struct rtskb *skb, unsigned char *haddr);
+static int eth1394_header_cache(struct neighbour *neigh, struct hh_cache *hh);
+static void eth1394_header_cache_update(struct hh_cache *hh,
 					  struct rtnet_device *dev,
 					  unsigned char * haddr);
-static int ether1394_mac_addr(struct rtnet_device *dev, void *p);
+static int eth1394_mac_addr(struct rtnet_device *dev, void *p);
 
 static inline void purge_partial_datagram(struct list_head *old);
-static int ether1394_tx(struct rtskb *skb, struct rtnet_device *dev);
-static void ether1394_iso(struct hpsb_iso *iso);
+static int eth1394_tx(struct rtskb *skb, struct rtnet_device *dev);
+static void eth1394_iso(struct hpsb_iso *iso);
 
-static int ether1394_do_ioctl(struct rtnet_device *dev, struct ifreq *ifr, int cmd);
+static int eth1394_do_ioctl(struct rtnet_device *dev, struct ifreq *ifr, int cmd);
 
 static void eth1394_iso_shutdown(struct eth1394_priv *priv)
 {
@@ -126,7 +126,7 @@ static void eth1394_iso_shutdown(struct eth1394_priv *priv)
 	}
 }
 
-static int ether1394_init_bc(struct rtnet_device *dev)
+static int eth1394_init_bc(struct rtnet_device *dev)
 {
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 
@@ -167,7 +167,7 @@ static int ether1394_init_bc(struct rtnet_device *dev)
 
 			priv->iso = hpsb_iso_recv_init(priv->host, 16 * 4096,
 						       16, priv->broadcast_channel,
-						       1, ether1394_iso);
+						       1, eth1394_iso);
 			if (priv->iso == NULL) {
 				ETH1394_PRINT(KERN_ERR, dev->name,
 					      "failed to change broadcast "
@@ -189,7 +189,7 @@ static int ether1394_init_bc(struct rtnet_device *dev)
 	return 0;
 }
 
-static int ether1394_open (struct rtnet_device *dev)
+static int eth1394_open (struct rtnet_device *dev)
 {
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	unsigned long flags;
@@ -201,7 +201,7 @@ static int ether1394_open (struct rtnet_device *dev)
 		return -EAGAIN;
 	}
 	rtos_spin_lock_irqsave(&priv->lock, flags);
-	ret = ether1394_init_bc(dev);
+	ret = eth1394_init_bc(dev);
 	rtos_spin_unlock_irqrestore(&priv->lock, flags);
 
 	if (ret)
@@ -211,7 +211,7 @@ static int ether1394_open (struct rtnet_device *dev)
 	return 0;
 }
 
-static int ether1394_stop (struct rtnet_device *dev)
+static int eth1394_stop (struct rtnet_device *dev)
 {
 	rtnetif_stop_queue (dev);
 	rt_stack_disconnect(dev);
@@ -219,13 +219,13 @@ static int ether1394_stop (struct rtnet_device *dev)
 }
 
 /* Return statistics to the caller */
-static struct net_device_stats *ether1394_stats (struct rtnet_device *dev)
+static struct net_device_stats *eth1394_stats (struct rtnet_device *dev)
 {
 	return &(((struct eth1394_priv *)dev->priv)->stats);
 }
 
 /* this should not happen in real-time context */
-static void ether1394_tx_timeout (struct rtnet_device *dev)
+static void eth1394_tx_timeout (struct rtnet_device *dev)
 {
 	//~ ETH1394_PRINT (KERN_ERR, dev->name, "Timeout, resetting host %s\n",
 		       //~ ((struct eth1394_priv *)(dev->priv))->host->driver->name);
@@ -236,7 +236,7 @@ static void ether1394_tx_timeout (struct rtnet_device *dev)
 	return;
 }
 
-static int ether1394_change_mtu(struct rtnet_device *dev, int new_mtu)
+static int eth1394_change_mtu(struct rtnet_device *dev, int new_mtu)
 {
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	int phy_id = get_nodeid(priv->host);
@@ -487,7 +487,7 @@ static void eth1394_host_reset (void *host)
 /* Create a fake MAC header for an arbitrary protocol layer.
  * saddr=NULL means use device source address
  * daddr=NULL means leave destination address (eg unresolved arp). */
-static int ether1394_header(struct rtskb *skb, struct rtnet_device *dev,
+static int eth1394_header(struct rtskb *skb, struct rtnet_device *dev,
 			    unsigned short type, void *daddr, void *saddr,
 			    unsigned len)
 {
@@ -500,14 +500,14 @@ static int ether1394_header(struct rtskb *skb, struct rtnet_device *dev,
 		memset(eth->h_dest, 0, dev->addr_len);
 		return(dev->hard_header_len);
 	}
-
-	if (daddr)
-	{
-		memcpy(eth->h_dest,daddr,dev->addr_len);
-		return dev->hard_header_len;
-	}
 	
-	return -dev->hard_header_len;
+	if (daddr)
+		memcpy(eth->h_dest,daddr,dev->addr_len);
+	
+	if (saddr)
+		memcpy(eth->h_src, saddr, dev->addr_len);
+	
+	return dev->hard_header_len;
 
 }
 
@@ -519,7 +519,7 @@ static int ether1394_header(struct rtskb *skb, struct rtnet_device *dev,
  * This routine CANNOT use cached dst->neigh!
  * Really, it is used only when dst->neigh is wrong.
  */
-static int ether1394_rebuild_header(struct rtskb *skb)
+static int eth1394_rebuild_header(struct rtskb *skb)
 {
 	struct eth1394hdr *eth = (struct eth1394hdr *)skb->data;
 	struct rtnet_device *dev = skb->rtdev;
@@ -540,7 +540,7 @@ static int ether1394_rebuild_header(struct rtskb *skb)
 	return 0;
 }
 
-static int ether1394_header_parse(struct rtskb *skb, unsigned char *haddr)
+static int eth1394_header_parse(struct rtskb *skb, unsigned char *haddr)
 {
 	struct rtnet_device *dev = skb->rtdev;
 	memcpy(haddr, dev->dev_addr, ETH1394_ALEN);
@@ -548,7 +548,7 @@ static int ether1394_header_parse(struct rtskb *skb, unsigned char *haddr)
 }
 
 
-static int ether1394_header_cache(struct neighbour *neigh, struct hh_cache *hh)
+static int eth1394_header_cache(struct neighbour *neigh, struct hh_cache *hh)
 {
 	unsigned short type = hh->hh_type;
 	struct eth1394hdr *eth = (struct eth1394hdr*)(((u8*)hh->hh_data) + 6);
@@ -566,14 +566,14 @@ static int ether1394_header_cache(struct neighbour *neigh, struct hh_cache *hh)
 }
 
 /* Called by Address Resolution module to notify changes in address. */
-static void ether1394_header_cache_update(struct hh_cache *hh,
+static void eth1394_header_cache_update(struct hh_cache *hh,
 					  struct rtnet_device *dev,
 					  unsigned char * haddr)
 {
 	memcpy(((u8*)hh->hh_data) + 6, haddr, dev->addr_len);
 }
 
-static int ether1394_mac_addr(struct rtnet_device *dev, void *p)
+static int eth1394_mac_addr(struct rtnet_device *dev, void *p)
 {
 	if (rtnetif_running(dev))
 		return -EBUSY;
@@ -590,7 +590,7 @@ static int ether1394_mac_addr(struct rtnet_device *dev, void *p)
  ******************************************/
 
 /* Copied from net/ethernet/eth.c */
-static inline u16 ether1394_type_trans(struct rtskb *skb,
+static inline u16 eth1394_type_trans(struct rtskb *skb,
 				       struct rtnet_device *dev)
 {
 	struct eth1394hdr *eth;
@@ -625,13 +625,13 @@ static inline u16 ether1394_type_trans(struct rtskb *skb,
 
 /* Parse an encapsulated IP1394 header into an ethernet frame packet.
  * We also perform ARP translation here, if need be.  */
-static inline u16 ether1394_parse_encap(struct rtskb *skb,
+static inline u16 eth1394_parse_encap(struct rtskb *skb,
 					struct rtnet_device *dev,
 					nodeid_t srcid, nodeid_t destid,
 					u16 ether_type)
 {
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
-	u64 dest_hw;
+	u64 dest_hw, src_hw;
 	unsigned short ret = 0;
 
 	/* Setup our hw addresses. We use these to build the
@@ -640,6 +640,11 @@ static inline u16 ether1394_parse_encap(struct rtskb *skb,
 		dest_hw = ~0ULL;  /* broadcast */
 	else
 		dest_hw = priv->eui[NODEID_TO_NODE(destid)];
+	
+	if (srcid == (LOCAL_BUS | ALL_NODES))
+		src_hw = ~0ULL;  /* broadcast */
+	else
+		src_hw = priv->eui[NODEID_TO_NODE(srcid)];
 
 	/* If this is an ARP packet, convert it. First, we want to make
 	 * use of some of the fields, since they tell us a little bit
@@ -660,7 +665,7 @@ static inline u16 ether1394_parse_encap(struct rtskb *skb,
 
 		/* Update our speed/payload/fifo_offset table */
 		rtos_spin_lock_irqsave (&priv->lock, flags);
-		ether1394_register_limits(NODEID_TO_NODE(srcid), maxpayload,
+		eth1394_register_limits(NODEID_TO_NODE(srcid), maxpayload,
 					  arp1394->sspd, arp1394->s_uniq_id,
 					  fifo_addr, priv);
 		rtos_spin_unlock_irqrestore (&priv->lock, flags);
@@ -673,7 +678,7 @@ static inline u16 ether1394_parse_encap(struct rtskb *skb,
 		 *
 		 * IMPORTANT: The code below overwrites 1394 specific data
 		 * needed above data so keep the call to
-		 * ether1394_register_limits() before munging the data for the
+		 * eth1394_register_limits() before munging the data for the
 		 * higher level IP stack. */
 
 		arp->ar_hln = 8;
@@ -690,8 +695,8 @@ static inline u16 ether1394_parse_encap(struct rtskb *skb,
 
 	/* Now add the ethernet header. */
 	if (dev->hard_header (skb, dev, __constant_ntohs (ether_type),
-			      &dest_hw, NULL, skb->len) >= 0)
-		ret = ether1394_type_trans(skb, dev);
+			      &dest_hw, &src_hw, skb->len) >= 0)
+		ret = eth1394_type_trans(skb, dev);
 
 	return ret;
 }
@@ -867,13 +872,12 @@ static inline int is_datagram_complete(struct list_head *lh, int dg_size)
 /* Packet reception. We convert the IP1394 encapsulation header to an
  * ethernet header, and fill it with some of our other fields. This is
  * an incoming packet from the 1394 bus.  */
-static int ether1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
-				  char *buf, int len)
+static int eth1394_data_handler(struct rtnet_device *dev, struct hpsb_packet *packet)
 {
 	struct rtskb *skb;
 	unsigned long flags;
 	struct eth1394_priv *priv;
-	union eth1394_hdr *hdr = (union eth1394_hdr *)buf;
+	union eth1394_hdr *hdr = (union eth1394_hdr *)packet->data;
 	u16 ether_type = 0;  /* initialized to clear warning */
 	int hdr_len;
 
@@ -890,13 +894,22 @@ static int ether1394_data_handler(struct rtnet_device *dev, int srcid, int desti
 		 * bus. Build an skbuff around it so we can pass it to the
 		 * high level network layer. */
 
-		skb = dev_alloc_rtskb(len + dev->hard_header_len + 15,&priv->skb_pool);
-		if (!skb) {
-			HPSB_PRINT (KERN_ERR, "ether1394 rx: low on mem\n");
+		if(rtpkb_acquire((struct rtpkb*)packet, &priv->skb_pool)){
+			HPSB_PRINT (KERN_ERR, "eth1394 rx: low on mem\n");
 			priv->stats.rx_dropped++;
 			return -1;
 		}
-		rtskb_reserve(skb, (dev->hard_header_len + 15) & ~15);
+		
+		//~ skb = dev_alloc_rtskb(len + dev->hard_header_len + 15,&priv->skb_pool);
+		//~ if (!skb) {
+			//~ HPSB_PRINT (KERN_ERR, "eth1394 rx: low on mem\n");
+			//~ priv->stats.rx_dropped++;
+			//~ return -1;
+		//~ }
+		skb = (struct rtskb *)packet;//we can do this, because these two belong to the same common object, rtpkb. 
+		skb->data = (u8 *)packet->data + hdr_len; //we jump over the 1394-specific fragment overhead
+		
+		rtskb_reserve(skb, (dev->hard_header_len + 15) & ~15);//we reserve the space to put in fake MAC address
 		memcpy(rtskb_put(skb, len - hdr_len), buf + hdr_len, len - hdr_len);
 		ether_type = hdr->uf.ether_type;
 	} else {
@@ -916,6 +929,7 @@ static int ether1394_data_handler(struct rtnet_device *dev, int srcid, int desti
 		/* The 4th header word is reserved so no need to do ntohs() */
 
 		if (hdr->common.lf == ETH1394_HDR_LF_FF) {
+			//first fragment
 			ether_type = hdr->ff.ether_type;
 			dgl = hdr->ff.dgl;
 			dg_size = hdr->ff.dg_size + 1;
@@ -1010,7 +1024,7 @@ static int ether1394_data_handler(struct rtnet_device *dev, int srcid, int desti
 	 * converting to an ethernet frame header, aswell as arp
 	 * conversion if needed. ARP conversion is easier in this
 	 * direction, since we are using ethernet as our backend.  */
-	skb->protocol = ether1394_parse_encap(skb, dev, srcid, destid,
+	skb->protocol = eth1394_parse_encap(skb, dev, srcid, destid,
 					      ether_type);
 
 
@@ -1029,7 +1043,7 @@ static int ether1394_data_handler(struct rtnet_device *dev, int srcid, int desti
 		goto bad_proto;
 	}*/
 	
-	rtnetif_rx(skb);
+	rtnetif_rx(skb);//finally, we deliver the packet
 
 	/* Statistics */
 	priv->stats.rx_packets++;
@@ -1047,8 +1061,7 @@ bad_proto:
 }
 
 
- static int eth1394_write(void *host, int srcid, int destid,
-			   quadlet_t *data, u64 addr, size_t len, u16 flags)
+ static int eth1394_write(struct hpsb_host *host, struct hpsb_packet *packet)
 {
 	struct host_info *hi = hpsb_get_hostinfo(&eth1394_highlevel, host);
 
@@ -1058,29 +1071,43 @@ bad_proto:
 		return RCODE_ADDRESS_ERROR;
 	}
 
-	if (ether1394_data_handler(hi->dev, srcid, destid, (char*)data, len))
+	if (eth1394_data_handler(hi->dev, packet))
 		return RCODE_ADDRESS_ERROR;
 	else
 		return RCODE_COMPLETE;
 }
 
-static void eth1394_iso(void *dev_opaque, void *iso)
+
+/**
+ * callback function for broadcast channel
+ * called from hpsb_iso_wake( )
+ */
+static void eth1394_iso(struct hpsb_iso *iso, void *arg)
 {
 	quadlet_t *data;
 	char *buf;
-	struct rtnet_device *dev = (struct rtnet_device *)dev_opaque;
+	struct rtnet_device *dev;
 	unsigned int len;
 	u32 specifier_id;
 	u16 source_id;
 	int i;
 	int nready;
 	struct hpsb_iso_packet_info *info;
+		
+	hi = hpsb_get_hostinfo(&eth1394_highlevel, iso->host);
+	if (hi == NULL) {
+		ETH1394_PRINT_G(KERN_ERR, "Could not find net device for host %s\n",
+				iso->host->driver->name);
+		return;
+	}
 
+	dev = hi->dev;
 	
 	nready = hpsb_iso_n_ready(iso);
 	for (i = 0; i < nready; i++) {
-		info = get_isopacketinfo(iso,i);
-		data = (quadlet_t*) (info->buf);
+		struct hpsb_iso_packet_info *info =
+			&iso->infos[(iso->first_packet + i) % iso->buf_packets];
+		data = (quadlet_t*) (iso->data_buf.kvirt + info->offset);
 
 		/* skip over GASP header */
 		buf = (char *)data + 8;
@@ -1090,11 +1117,12 @@ static void eth1394_iso(void *dev_opaque, void *iso)
 				((be32_to_cpu(data[1]) & 0xff000000) >> 24));
 		source_id = be32_to_cpu(data[0]) >> 16;
 
-		if (specifier_id != ETHER1394_GASP_SPECIFIER_ID) {
+		if (info->channel != (iso->host->csr.broadcast_channel & 0x3f) ||
+				specifier_id != ETHER1394_GASP_SPECIFIER_ID) {
 			/* This packet is not for us */
 			continue;
 		}
-		ether1394_data_handler(dev, source_id, LOCAL_BUS | ALL_NODES,
+		eth1394_data_handler(dev, source_id, LOCAL_BUS | ALL_NODES,
 				       buf, len);
 	}
 
@@ -1118,7 +1146,10 @@ static void eth1394_iso(void *dev_opaque, void *iso)
  * speed, and unicast FIFO address information between the sender_unique_id
  * and the IP addresses.
  */
-static inline void ether1394_arp_to_1394arp(struct rtskb *skb,
+
+//we dont need the EUI id now. fifo_hi should contain the bus id and node id.
+//fifo_lo should contain the highest 32 bits of in-node address. 
+static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 					    struct rtnet_device *dev)
 {
 	struct eth1394_priv *priv = (struct eth1394_priv *)(dev->priv);
@@ -1131,7 +1162,7 @@ static inline void ether1394_arp_to_1394arp(struct rtskb *skb,
 	/* Believe it or not, all that need to happen is sender IP get moved
 	 * and set hw_addr_len, max_rec, sspd, fifo_hi and fifo_lo.  */
 	arp1394->hw_addr_len	= 16;
-	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);
+	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);//IEEE1394_ALEN is 6 now
 	arp1394->max_rec	= (be32_to_cpu(priv->host->csr.rom[2]) >> 12) & 0xf;
 	arp1394->sspd		= priv->sspd[phy_id];
 	arp1394->fifo_hi	= htons (priv->fifo[phy_id] >> 32);
@@ -1142,7 +1173,7 @@ static inline void ether1394_arp_to_1394arp(struct rtskb *skb,
 
 /* We need to encapsulate the standard header with our own. We use the
  * ethernet header's proto for our own. */
-static inline unsigned int ether1394_encapsulate_prep(unsigned int max_payload,
+static inline unsigned int eth1394_encapsulate_prep(unsigned int max_payload,
 						      int proto,
 						      union eth1394_hdr *hdr,
 						      u16 dg_size, u16 dgl)
@@ -1165,7 +1196,7 @@ static inline unsigned int ether1394_encapsulate_prep(unsigned int max_payload,
 	return((dg_size + (adj_max_payload - 1)) / adj_max_payload);
 }
 
-static inline unsigned int ether1394_encapsulate(struct rtskb *skb,
+static inline unsigned int eth1394_encapsulate(struct rtskb *skb,
 						 unsigned int max_payload,
 						 union eth1394_hdr *hdr)
 {
@@ -1207,11 +1238,12 @@ static inline unsigned int ether1394_encapsulate(struct rtskb *skb,
 	return min(max_payload, skb->len);
 }
 
-static inline struct hpsb_packet *ether1394_alloc_common_packet(struct hpsb_host *host)
+//just allocate a hpsb_packet header, without payload. 
+static inline struct hpsb_packet *eth1394_alloc_common_packet(struct hpsb_host *host, unsigned int priority)
 {
 	struct hpsb_packet *p;
 
-	p = alloc_hpsb_packet(0);
+	p = alloc_hpsb_packet(0,&host->pool, priority);
 	if (p) {
 		p->host = host;
 		p->data = NULL;
@@ -1221,7 +1253,8 @@ static inline struct hpsb_packet *ether1394_alloc_common_packet(struct hpsb_host
 	return p;
 }
 
-static inline int ether1394_prep_write_packet(struct hpsb_packet *p,
+//prepare an asynchronous write packet
+static inline int eth1394_prep_write_packet(struct hpsb_packet *p,
 					      struct hpsb_host *host,
 					      nodeid_t node, u64 addr,
 					      void * data, int tx_len)
@@ -1251,7 +1284,8 @@ static inline int ether1394_prep_write_packet(struct hpsb_packet *p,
 	return 0;
 }
 
-static inline void ether1394_prep_gasp_packet(struct hpsb_packet *p,
+//prepare gasp packet from skb. 
+static inline void eth1394_prep_gasp_packet(struct hpsb_packet *p,
 					      struct eth1394_priv *priv,
 					      struct rtskb *skb, int length)
 {
@@ -1262,7 +1296,7 @@ static inline void ether1394_prep_gasp_packet(struct hpsb_packet *p,
 		| ((priv->broadcast_channel) << 8)
 		| (TCODE_STREAM_DATA << 4);
 	p->data_size = length;
-	p->data = ((quadlet_t*)skb->data) - 2;
+	p->data = ((quadlet_t*)skb->data) - 2; //we need 64bits for extra spec_id and gasp version. 
 	p->data[0] = cpu_to_be32((priv->host->node_id << 16) |
 				      ETHER1394_GASP_SPECIFIER_ID_HI);
 	p->data[1] = cpu_to_be32((ETHER1394_GASP_SPECIFIER_ID_LO << 24) |
@@ -1275,30 +1309,43 @@ static inline void ether1394_prep_gasp_packet(struct hpsb_packet *p,
 	p->speed_code = priv->sspd[ALL_NODES];
 }
 
-static inline void ether1394_free_packet(struct hpsb_packet *packet)
+//~ static inline void eth1394_prep_gasp_cmd(struct rtskb *skb, int length, struct eth1394_priv *priv)
+//~ {
+	//~ struct gasp_cmd *eth1394_gasp = &priv->gasp;
+	//~ eth1394_gasp->host = priv->host;
+	//~ eth1394_gasp->data_size=length;
+	//~ eth1394_gasp->data=((quadlet_t*)skb->data)-2;
+	//~ eth1394_gasp->data[0] = cpu_to_be32((priv->node_id << 16) |
+					//~ ETHER1394_GASP_SPECIFIER_ID_HI);
+	//~ eth1394_gasp->data[1] = cpu_to_be32((ETHER1394_GASP_SPECIFIER_ID_LO << 24) |
+					//~ ETHER1394_GASP_VERSION);
+	
+//~ }
+
+static inline void eth1394_free_packet(struct hpsb_packet *packet)
 {
 	if (packet->tcode != TCODE_STREAM_DATA)
 		hpsb_free_tlabel(packet);
 	packet->data = NULL;
-	free_hpsb_packet(packet);
+	hpsb_free_packet(packet);
 }
 
-static void ether1394_complete_cb(void *__ptask);
+static void eth1394_complete_cb(struct hpsb_packet *packet, void *__ptask);
 
-static int ether1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
+static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 {
 	struct eth1394_priv *priv = ptask->priv;
 	struct hpsb_packet *packet = NULL;
 
-	packet = ether1394_alloc_common_packet(priv->host);
+	packet = eth1394_alloc_common_packet(priv->host, ptask->priority);
 	if (!packet)
 		return -1;
 
 	if (ptask->tx_type == ETH1394_GASP) {
 		int length = tx_len + (2 * sizeof(quadlet_t));
 
-		ether1394_prep_gasp_packet(packet, priv, ptask->skb, length);
-	} else if (ether1394_prep_write_packet(packet, priv->host,
+		eth1394_prep_gasp_packet(packet, priv, ptask->skb, length);
+	} else if (eth1394_prep_write_packet(packet, priv->host,
 					       ptask->dest_node,
 					       ptask->addr, ptask->skb->data,
 					       tx_len)) {
@@ -1307,11 +1354,11 @@ static int ether1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 	}
 	
 	ptask->packet = packet;
-	hpsb_set_packet_complete_task(ptask->packet, ether1394_complete_cb,
+	hpsb_set_packet_complete_task(ptask->packet, eth1394_complete_cb,
 				      ptask);
 
 	if (!hpsb_send_packet(packet)) {
-		ether1394_free_packet(packet);
+		eth1394_free_packet(packet);
 		return -1;
 	}
 
@@ -1320,7 +1367,7 @@ static int ether1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 
 
 /* Task function to be run when a datagram transmission is completed */
-static inline void ether1394_dg_complete(struct packet_task *ptask, int fail)
+static inline void eth1394_dg_complete(struct packet_task *ptask, int fail)
 {
 	struct rtskb *skb = ptask->skb;
 	struct rtnet_device *dev = skb->rtdev;
@@ -1340,22 +1387,23 @@ static inline void ether1394_dg_complete(struct packet_task *ptask, int fail)
 
 	//dev_kfree_skb_any(skb);
 	kfree_rtskb(skb);
-	kmem_cache_free(packet_task_cache, ptask);
+	//~ kmem_cache_free(packet_task_cache, ptask);
+	ptask->packet=NULL;
 }
 
 
 /* Callback for when a packet has been sent and the status of that packet is
  * known */
-static void ether1394_complete_cb(void *__ptask)
+static void eth1394_complete_cb(struct hpsb_packet *packet, void *__ptask)
 {
 	struct packet_task *ptask = (struct packet_task *)__ptask;
-	struct hpsb_packet *packet = ptask->packet;
+	//struct hpsb_packet *packet = ptask->packet;
 	int fail = 0;
 
 	if (packet->tcode != TCODE_STREAM_DATA)
 		fail = hpsb_packet_success(packet);
-
-	ether1394_free_packet(packet);
+	
+	eth1394_free_packet(packet);
 
 	ptask->outstanding_pkts--;
 	if (ptask->outstanding_pkts > 0 && !fail)
@@ -1363,23 +1411,20 @@ static void ether1394_complete_cb(void *__ptask)
 		int tx_len;
 
 		/* Add the encapsulation header to the fragment */
-		tx_len = ether1394_encapsulate(ptask->skb, ptask->max_payload,
+		tx_len = eth1394_encapsulate(ptask->skb, ptask->max_payload,
 					       &ptask->hdr);
-		if (ether1394_send_packet(ptask, tx_len))
-			ether1394_dg_complete(ptask, 1);
+		if (eth1394_send_packet(ptask, tx_len))
+			eth1394_dg_complete(ptask, 1);
 	} else {
-		ether1394_dg_complete(ptask, fail);
+		eth1394_dg_complete(ptask, fail);
 	}
 }
 
 
 
 /* Transmit a packet (called by kernel) */
-static int ether1394_tx (struct rtskb *skb, struct rtnet_device *dev)
+static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 {
-	
-	//int kmflags = in_interrupt() ? GFP_ATOMIC : GFP_KERNEL;
-	int kmflags = GFP_ATOMIC;
 	struct eth1394hdr *eth;
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	int proto;
@@ -1394,17 +1439,12 @@ static int ether1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	struct packet_task *ptask;
 	struct node_entry *ne;
 	
-	
-	//~ ptask = kmem_cache_alloc(packet_task_cache, kmflags);
-	//~ if (ptask == NULL) {
-		//~ ret = -ENOMEM;
-		//~ goto fail;
-	//~ }
 	struct list_head *l;
 	struct packet_task* ptask,p;
 	list_for_each(l, &ptask_list){
 		p=list_entry(l, struct packet_task, lh);
 		if(p->packet == NULL){
+			//we find a unused ptask
 			ptask = p;
 			break;
 		}
@@ -1421,13 +1461,10 @@ static int ether1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 		rtos_spin_unlock_irqrestore (&priv->lock, flags);
 		goto fail;
 	}
-
-	if ((ret = ether1394_init_bc(dev))) {
+	if ((ret = eth1394_init_bc(dev))) {
 		rtos_spin_unlock_irqrestore (&priv->lock, flags);
 		goto fail;
 	}
-
-
 	rtos_spin_unlock_irqrestore (&priv->lock, flags);
 	//if ((skb = skb_share_check (skb, kmflags)) == NULL) {
 	//	ret = -ENOMEM;
@@ -1438,7 +1475,7 @@ static int ether1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	eth = (struct eth1394hdr*)skb->data;
 	rtskb_pull(skb, ETH1394_HLEN);
 
-
+	//find the node id via our fake MAC address
 	ne = hpsb_guid_get_entry(be64_to_cpu(*(u64*)eth->h_dest));
 	if (!ne)
 		dest_node = LOCAL_BUS | ALL_NODES;
@@ -1449,7 +1486,7 @@ static int ether1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 
 	/* If this is an ARP packet, convert it */
 	if (proto == __constant_htons (ETH_P_ARP))
-		ether1394_arp_to_1394arp (skb, dev);
+		eth1394_arp_to_1394arp (skb, dev);
 
 	max_payload = priv->maxpayload[NODEID_TO_NODE(dest_node)];
 
@@ -1469,7 +1506,7 @@ static int ether1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	    (proto == __constant_htons(ETH_P_IP) &&
 	     IN_MULTICAST(__constant_ntohl(skb->nh.iph->daddr)))) {
 		tx_type = ETH1394_GASP;
-                max_payload -= ETHER1394_GASP_OVERHEAD;
+                max_payload -= ETHER1394_GASP_OVERHEAD; //we have extra overhead for gasp packet
 	} else {
 		tx_type = ETH1394_WRREQ;
 	}
@@ -1512,21 +1549,24 @@ static int ether1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 
 	ptask->tx_type = tx_type;
 	ptask->max_payload = max_payload;
-	ptask->outstanding_pkts = ether1394_encapsulate_prep(max_payload, proto,
+	ptask->outstanding_pkts = eth1394_encapsulate_prep(max_payload, proto,
 							     &ptask->hdr, dg_size,
 							     dgl);
 
 	/* Add the encapsulation header to the fragment */
-	tx_len = ether1394_encapsulate(skb, max_payload, &ptask->hdr);
+	tx_len = eth1394_encapsulate(skb, max_payload, &ptask->hdr);
 	//dev->trans_start = jiffies;
-	if (ether1394_send_packet(ptask, tx_len))
+	if (eth1394_send_packet(ptask, tx_len))
 		goto fail;
 	
 	rtnetif_wake_queue(dev);
 	return 0;
 fail:
-	if (ptask)
-		kmem_cache_free(packet_task_cache, ptask);
+	if (ptask!=NULL){
+		//~ kmem_cache_free(packet_task_cache, ptask);
+		ptask->packet=NULL;
+		ptask=NULL;
+	}
 
 	if (skb != NULL)
 		dev_kfree_rtskb(skb);
@@ -1542,11 +1582,11 @@ fail:
 	return 0;  /* returning non-zero causes serious problems */
 }
 
-static int ether1394_do_ioctl(struct rtnet_device *dev, struct ifreq *ifr, int cmd)
+static int eth1394_do_ioctl(struct rtnet_device *dev, struct ifreq *ifr, int cmd)
 {
 	switch(cmd) {
 		case SIOCETHTOOL:
-			return ether1394_ethtool_ioctl(dev, (void *) ifr->ifr_data);
+			return eth1394_ethtool_ioctl(dev, (void *) ifr->ifr_data);
 
 		case SIOCGMIIPHY:		/* Get address of MII PHY in use. */
 		case SIOCGMIIREG:		/* Read MII PHY register. */
@@ -1558,7 +1598,7 @@ static int ether1394_do_ioctl(struct rtnet_device *dev, struct ifreq *ifr, int c
 	return 0;
 }
 
-static int ether1394_ethtool_ioctl(struct rtnet_device *dev, void *useraddr)
+static int eth1394_ethtool_ioctl(struct rtnet_device *dev, void *useraddr)
 {
 	u32 ethcmd;
 
@@ -1596,8 +1636,7 @@ static struct hpsb_address_ops eth1394_op = {
 	.write =	eth1394_write,
 };
 
-
-/* Ieee1394 highlevel driver functions */
+/* basic info and callback from kernel */
 static struct hpsb_highlevel eth1394_highlevel = {
 	.name =		driver_name,
 	.add_host =	eth1394_add_host,

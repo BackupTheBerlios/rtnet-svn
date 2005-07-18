@@ -95,13 +95,15 @@ struct host_info {
 
 /* Define a fake hardware header format for the networking core.  Note that
  * header size cannot exceed 16 bytes as that is the size of the header cache.
- * Also, we do not need the source address in the header so we omit it and
- * keep the header to under 16 bytes */
+ * {Also, we do not need the source address in the header so we omit it and
+ * keep the header to under 16 bytes} added now, since some protocol needs 
+ * this header*/
 #define ETH1394_ALEN (8)
-#define ETH1394_HLEN (10)
+#define ETH1394_HLEN (18)
 
 struct eth1394hdr {
 	unsigned char	h_dest[ETH1394_ALEN];	/* destination eth1394 addr	*/
+	unsigned char	h_src[ETH1394_ALEN];	/*source eth1394 addr */
 	unsigned short	h_proto;		/* packet type ID field	*/
 }  __attribute__((packed));
 
@@ -216,23 +218,37 @@ union eth1394_hdr {
 
 #define IP1394_HW_ADDR_LEN	16	/* As per RFC		*/
 
-/* Our arp packet (ARPHRD_IEEE1394) */
-struct eth1394_arp {
-	u16 hw_type;		/* 0x0018	*/
-	u16 proto_type;		/* 0x0806	*/
-	u8 hw_addr_len;		/* 16 		*/
-	u8 ip_addr_len;		/* 4		*/
-	u16 opcode;		/* ARP Opcode	*/
-	/* Above is exactly the same format as struct arphdr */
+//~ /* Our arp packet (ARPHRD_IEEE1394) */
+//~ struct eth1394_arp {
+	//~ u16 hw_type;		/* 0x0018	*/
+	//~ u16 proto_type;		/* 0x0806	*/
+	//~ u8 hw_addr_len;		/* 16 		*/
+	//~ u8 ip_addr_len;		/* 4		*/
+	//~ u16 opcode;		/* ARP Opcode	*/
+	//~ /* Above is exactly the same format as struct arphdr */
 
-	u64 s_uniq_id;		/* Sender's 64bit EUI			*/
-	u8 max_rec;		/* Sender's max packet size		*/
-	u8 sspd;		/* Sender's max speed			*/
-	u16 fifo_hi;		/* hi 16bits of sender's FIFO addr	*/
-	u32 fifo_lo;		/* lo 32bits of sender's FIFO addr	*/
-	u32 sip;		/* Sender's IP Address			*/
-	u32 tip;		/* IP Address of requested hw addr	*/
-};
+	//~ u64 s_uniq_id;		/* Sender's 64bit EUI			*/
+	//~ u8 max_rec;		/* Sender's max packet size		*/
+	//~ u8 sspd;		/* Sender's max speed			*/
+	//~ u16 fifo_hi;		/* hi 16bits of sender's FIFO addr	*/
+	//~ u32 fifo_lo;		/* lo 32bits of sender's FIFO addr	*/
+	//~ u32 sip;		/* Sender's IP Address			*/
+	//~ u32 tip;		/* IP Address of requested hw addr	*/
+//~ };
+
+struct eth1394_arp{
+	u16 hw_type;
+	u16 proto_type;
+	u8 hw_addr_len;
+	u8 ip_addr_len;
+	u16 opcode,
+	
+	u8 max_rec;
+	u8 sspd;
+	
+	u32 sip;
+	u32 tip;
+}
 
 /* Network timeout */
 #define ETHER1394_TIMEOUT	100000
@@ -249,6 +265,7 @@ struct packet_task {
 	union eth1394_hdr hdr;
 	u64 addr;
 	u16 dest_node;
+	unsigned int priority; //the priority mapped to priority on 1394 transaction
 };
 
 #endif /* __ETH1394_H */
