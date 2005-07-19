@@ -103,7 +103,7 @@ struct host_info {
 
 struct eth1394hdr {
 	unsigned char	h_dest[ETH1394_ALEN];	/* destination eth1394 addr	*/
-	unsigned char	h_src[ETH1394_ALEN];	/*source eth1394 addr */
+	unsigned char	h_source[ETH1394_ALEN];	/*source eth1394 addr */
 	unsigned short	h_proto;		/* packet type ID field	*/
 }  __attribute__((packed));
 

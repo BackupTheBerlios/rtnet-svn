@@ -495,6 +495,11 @@ static int eth1394_header(struct rtskb *skb, struct rtnet_device *dev,
 
 	eth->h_proto = htons(type);
 
+	if (saddr)
+		memcpy(eth->h_source, saddr, dev->addr_len);
+	else
+		memcpy(eth->h_source, dev->dev_addr, dev->addr_len);
+	
 	if (dev->flags & (IFF_LOOPBACK|IFF_NOARP)) 
 	{
 		memset(eth->h_dest, 0, dev->addr_len);
@@ -502,13 +507,13 @@ static int eth1394_header(struct rtskb *skb, struct rtnet_device *dev,
 	}
 	
 	if (daddr)
+	{
 		memcpy(eth->h_dest,daddr,dev->addr_len);
-	
-	if (saddr)
-		memcpy(eth->h_src, saddr, dev->addr_len);
-	
-	return dev->hard_header_len;
+		return dev->hard_header_len;
+	}
 
+	return -dev->hard_header_len;
+	
 }
 
 
@@ -631,28 +636,30 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 					u16 ether_type)
 {
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
-	u64 dest_hw, src_hw;
+	//~ u64 dest_hw, src_hw;
 	unsigned short ret = 0;
 
 	/* Setup our hw addresses. We use these to build the
-	 * ethernet header.  */
-	if (destid == (LOCAL_BUS | ALL_NODES))
-		dest_hw = ~0ULL;  /* broadcast */
-	else
-		dest_hw = priv->eui[NODEID_TO_NODE(destid)];
+	 * ethernet header.  *///now no need to build the header 
+	//~ if (destid == (LOCAL_BUS | ALL_NODES))
+		//~ dest_hw = ~0ULL;  /* broadcast */
+	//~ else
+		//~ dest_hw = priv->eui[NODEID_TO_NODE(destid)];
 	
-	if (srcid == (LOCAL_BUS | ALL_NODES))
-		src_hw = ~0ULL;  /* broadcast */
-	else
-		src_hw = priv->eui[NODEID_TO_NODE(srcid)];
+	//~ if (srcid == (LOCAL_BUS | ALL_NODES))
+		//~ src_hw = ~0ULL;  /* broadcast */
+	//~ else
+		//~ src_hw = priv->eui[NODEID_TO_NODE(srcid)];
 
 	/* If this is an ARP packet, convert it. First, we want to make
 	 * use of some of the fields, since they tell us a little bit
 	 * about the sending machine.  */
 	if (ether_type == __constant_htons (ETH_P_ARP)) {
 		unsigned long flags;
-		struct eth1394_arp *arp1394 = (struct eth1394_arp*)skb->data;
-		struct arphdr *arp = (struct arphdr *)skb->data;
+		struct eth1394_arp *arp1394 = 
+				(struct eth1394_arp*)((u8 *)skb->data + ETH1394_HLEN);
+		struct arphdr *arp = 
+				(struct arphdr *)((u8 *)skb->data + ETH1394_HLEN);
 		unsigned char *arp_ptr = (unsigned char *)(arp + 1);
 		u64 fifo_addr = (u64)ntohs(arp1394->fifo_hi) << 32 |
 			ntohl(arp1394->fifo_lo);
@@ -694,8 +701,9 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 	}
 
 	/* Now add the ethernet header. */
-	if (dev->hard_header (skb, dev, __constant_ntohs (ether_type),
-			      &dest_hw, &src_hw, skb->len) >= 0)
+	//no need to add ethernet header now, since we did not get rid of it on the sending side
+	//~ if (dev->hard_header (skb, dev, __constant_ntohs (ether_type),
+			      //~ &dest_hw, &src_hw, skb->len) >= 0)
 		ret = eth1394_type_trans(skb, dev);
 
 	return ret;
@@ -907,10 +915,11 @@ static int eth1394_data_handler(struct rtnet_device *dev, struct hpsb_packet *pa
 			//~ return -1;
 		//~ }
 		skb = (struct rtskb *)packet;//we can do this, because these two belong to the same common object, rtpkb. 
+		rtpkb_put(skb, len-hdr_len);
 		skb->data = (u8 *)packet->data + hdr_len; //we jump over the 1394-specific fragment overhead
-		
-		rtskb_reserve(skb, (dev->hard_header_len + 15) & ~15);//we reserve the space to put in fake MAC address
-		memcpy(rtskb_put(skb, len - hdr_len), buf + hdr_len, len - hdr_len);
+		rtskb_put(skb, );
+		//~ rtskb_reserve(skb, (dev->hard_header_len + 15) & ~15);//we reserve the space to put in fake MAC address
+		//~ memcpy(rtskb_put(skb, len - hdr_len), buf + hdr_len, len - hdr_len);
 		ether_type = hdr->uf.ether_type;
 	} else {
 		rtos_print("a datagram fragment has been received\n");
@@ -1471,9 +1480,12 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	//	goto fail;
 	//}
 
-	/* Get rid of the fake eth1394 header, but save a pointer */
+	//~ /* Get rid of the fake eth1394 header, but save a pointer */
+	//~ eth = (struct eth1394hdr*)skb->data;
+	//~ rtskb_pull(skb, ETH1394_HLEN);
+	
+	//dont get rid of the fake eth1394 header, since we need it on the receiving side
 	eth = (struct eth1394hdr*)skb->data;
-	rtskb_pull(skb, ETH1394_HLEN);
 
 	//find the node id via our fake MAC address
 	ne = hpsb_guid_get_entry(be64_to_cpu(*(u64*)eth->h_dest));
