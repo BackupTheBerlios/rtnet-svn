@@ -175,7 +175,7 @@ static int eth1394_init_bc(struct rtnet_device *dev)
 
 		bc = priv->host->csr.broadcast_channel;
 
-		if ((bc & 0xc0000000) != 0xc0000000) {
+		if ((bc & 0x80000000) != 0x80000000) { //used to be 0xc0000000
 			/* broadcast channel not validated yet */
 			ETH1394_PRINT(KERN_WARNING, dev->name,
 				      "Error BROADCAST_CHANNEL register valid "
@@ -1203,6 +1203,7 @@ static void eth1394_iso(struct hpsb_iso *iso, void *arg)
 static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 					    struct rtnet_device *dev)
 {
+	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	struct eth1394_priv *priv = (struct eth1394_priv *)(dev->priv);
 	u16 phy_id = NODEID_TO_NODE(priv->host->node_id);
 
@@ -1212,7 +1213,7 @@ static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 
 	/* Believe it or not, all that need to happen is sender IP get moved
 	 * and set hw_addr_len, max_rec, sspd, fifo_hi and fifo_lo.  */
-	arp1394->hw_addr_len	= 18; //we also include the source hardware address
+	arp1394->hw_addr_len	= 2; //we also include the source hardware address
 	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);
 	arp1394->max_rec	= priv->host->csr.max_rec;
 	arp1394->sspd		= priv->sspd[phy_id];
@@ -1387,6 +1388,7 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 		return -1;
 
 	if (ptask->tx_type == ETH1394_GASP) {
+		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 		int length = tx_len + (2 * sizeof(quadlet_t));
 
 		eth1394_prep_gasp_packet(packet, priv, ptask->skb, length);
@@ -1532,6 +1534,7 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 		//~ dest_node = ne->nodeid;
 	//now it is much easier
 	dest_node = *(u16*)eth->h_dest;
+	rtos_print("%s: dest_node is %x\n", __FUNCTION__, dest_node);
 	
 	proto = eth->h_proto;
 
