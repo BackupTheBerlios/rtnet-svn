@@ -37,9 +37,15 @@ struct rtnet_callback {
 };
 
 
-#ifndef RTIOC_TYPE_NETWORK
+/* sub-classes: RTDM_CLASS_NETWORK */
+#define RTDM_SUBCLASS_RTNET         0
+
+/* sub-classes: RTDM_CLASS_RTMAC */
+#define RTDM_SUBCLASS_TDMA          0
+#define RTDM_SUBCLASS_UNMANAGED     1
+
+
 #define RTIOC_TYPE_NETWORK      RTDM_CLASS_NETWORK
-#endif
 
 /* RTnet-specific IOCTLs */
 #define RTNET_RTIOC_XMITPARAMS  _IOW(RTIOC_TYPE_NETWORK, 0x10, unsigned int)
