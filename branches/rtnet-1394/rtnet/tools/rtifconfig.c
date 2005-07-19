@@ -92,6 +92,12 @@ void print_dev(void)
                cmd.args.info.dev_addr[0], cmd.args.info.dev_addr[1],
                cmd.args.info.dev_addr[2], cmd.args.info.dev_addr[3],
                cmd.args.info.dev_addr[4], cmd.args.info.dev_addr[5]);
+    if (cmd.args.info.type == ARPHRD_IEEE1394)
+        printf("Eth1394  Hardware address: "
+               "%02X:%02X:%02X:%02X:%02X:%02X\n",
+               cmd.args.info.dev_addr[0], cmd.args.info.dev_addr[1],
+               cmd.args.info.dev_addr[2], cmd.args.info.dev_addr[3],
+               cmd.args.info.dev_addr[4], cmd.args.info.dev_addr[5]);
     else
         printf("unknown (%X)\n", cmd.args.info.type);
 
