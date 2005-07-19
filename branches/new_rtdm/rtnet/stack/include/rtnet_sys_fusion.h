@@ -126,7 +126,7 @@ static inline void rtos_timer_stop(void)
 /* event signaling */
 #define rtos_event_init(event)              rtdm_event_init(event, 0)
 #define rtos_event_delete(event)            rtdm_event_destroy(event)
-#define rtos_event_broadcast(event)         rtdm_event_broadcast(event)
+#define rtos_event_broadcast(event)         rtdm_event_pulse(event)
 #define rtos_event_signal(event)            rtdm_event_signal(event)
 #define rtos_event_wait(event, timeout)     rtdm_event_wait(event, timeout)
 
