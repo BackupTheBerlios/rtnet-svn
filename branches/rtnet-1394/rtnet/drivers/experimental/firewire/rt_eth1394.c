@@ -1383,6 +1383,12 @@ static inline void ether1394_free_packet(struct hpsb_packet *packet)
 
 static void ether1394_complete_cb(void *__ptask);
 
+
+/**
+ * this function does the real calling of hpsb_send_packet
+ *But before that, it also constructs the FireWire packet according to
+ * ptask
+ */
 static int ether1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 {
 	struct eth1394_priv *priv = ptask->priv;
@@ -1400,7 +1406,7 @@ static int ether1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 					       ptask->dest_node,
 					       ptask->addr, ptask->skb->data,
 					       tx_len)) {
-		free_hpsb_packet(packet);
+		hpsb_free_packet(packet);
 		return -1;
 	}
 	

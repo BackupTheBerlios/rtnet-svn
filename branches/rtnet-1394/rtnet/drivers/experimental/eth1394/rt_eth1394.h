@@ -24,10 +24,10 @@
 #ifndef __ETH1394_H
 #define __ETH1394_H
 
-//#include <ieee1394.h>
+#include <ieee1394.h>
 #include <rtskb.h>
 #include <linux/netdevice.h>
-#include <api/rtfwapi.h>
+
 
 /* Register for incoming packets. This is 4096 bytes, which supports up to
  * S3200 (per Table 16-3 of IEEE 1394b-2002). */
@@ -43,17 +43,21 @@
 
 #define ETHER1394_GASP_OVERHEAD (2 * sizeof(quadlet_t))  /* GASP header overhead */
 
+#define ETHER1394_GASP_BUFFERS 16
+
 #define ETH1394_BC_CHANNEL 31
 
 #define ALL_NODES	0x003f //stolen from ieee1394_types.h
 /* Node set == 64 */
 #define NODE_SET			(ALL_NODES + 1)
 
+enum eth1394_bc_states { ETHER1394_BC_CLOSED, ETHER1394_BC_OPENED,
+			 ETHER1394_BC_CHECK, ETHER1394_BC_ERROR,
+			 ETHER1394_BC_RUNNING,
+			 ETHER1394_BC_STOPPED  };
+
 #define TX_RING_SIZE	32
 #define RX_RING_SIZE	8 /* RX_RING_SIZE*2 rtskbs will be preallocated */
-
-enum eth1394_bc_states { ETHER1394_BC_CLOSED, ETHER1394_BC_OPENED,
-			 ETHER1394_BC_CHECK };
 
 struct pdg_list {
 	struct list_head list;		/* partial datagram list per node */
@@ -64,15 +68,15 @@ struct pdg_list {
 /* Private structure for our ethernet driver */
 struct eth1394_priv {
 	struct net_device_stats stats;	/* Device stats			 */
-	void *host;		/* The card for this dev	 */
+	struct hpsb_host *host;		/* The card for this dev	 */
 	u16 maxpayload[NODE_SET];	/* Max payload per node		 */
 	unsigned char sspd[NODE_SET];	/* Max speed per node		 */
 	u64 fifo[ALL_NODES];		/* FIFO offset per node		 */
 	u64 eui[ALL_NODES];		/* EUI-64 per node		 */
-	spinlock_t lock;		/* Private lock			 */
+	rtos_spinlock_t lock;		/* Private lock			 */
 	int broadcast_channel;		/* Async stream Broadcast Channel */
 	enum eth1394_bc_states bc_state; /* broadcast channel state	 */
-	struct hpsb_iso_config isoconfig;
+	struct hpsb_iso	*iso;
 	struct pdg_list pdg[ALL_NODES]; /* partial RX datagram lists     */
 	int dgl[NODE_SET];              /* Outgoing datagram label per node */
 	
@@ -81,13 +85,14 @@ struct eth1394_priv {
 	struct rtskb *tx_skbuff[TX_RING_SIZE];
 	struct rtskb *rx_skbuff[RX_RING_SIZE];
 	struct rtskb_queue skb_pool;
+	struct list_head	ptask_list; //the list of pre-allocated ptask structure
 	// *** RTnet ***
 };
 
 
 
 struct host_info {
-	void *host;
+	struct hpsb_host *host;
 	//******RTnet*******
 	struct rtnet_device *dev;
 };
@@ -218,37 +223,24 @@ union eth1394_hdr {
 
 #define IP1394_HW_ADDR_LEN	16	/* As per RFC		*/
 
-//~ /* Our arp packet (ARPHRD_IEEE1394) */
-//~ struct eth1394_arp {
-	//~ u16 hw_type;		/* 0x0018	*/
-	//~ u16 proto_type;		/* 0x0806	*/
-	//~ u8 hw_addr_len;		/* 16 		*/
-	//~ u8 ip_addr_len;		/* 4		*/
-	//~ u16 opcode;		/* ARP Opcode	*/
-	//~ /* Above is exactly the same format as struct arphdr */
+/* Our arp packet (ARPHRD_IEEE1394) */
+struct eth1394_arp {
+	u16 hw_type;		/* 0x0018	*/
+	u16 proto_type;		/* 0x0806	*/
+	u8 hw_addr_len;		/* 16 		*/
+	u8 ip_addr_len;		/* 4		*/
+	u16 opcode;		/* ARP Opcode	*/
+	/* Above is exactly the same format as struct arphdr */
 
-	//~ u64 s_uniq_id;		/* Sender's 64bit EUI			*/
-	//~ u8 max_rec;		/* Sender's max packet size		*/
-	//~ u8 sspd;		/* Sender's max speed			*/
-	//~ u16 fifo_hi;		/* hi 16bits of sender's FIFO addr	*/
-	//~ u32 fifo_lo;		/* lo 32bits of sender's FIFO addr	*/
-	//~ u32 sip;		/* Sender's IP Address			*/
-	//~ u32 tip;		/* IP Address of requested hw addr	*/
-//~ };
+	u64 s_uniq_id;		/* Sender's 64bit EUI			*/
+	u8 max_rec;		/* Sender's max packet size		*/
+	u8 sspd;		/* Sender's max speed			*/
+	u16 fifo_hi;		/* hi 16bits of sender's FIFO addr	*/
+	u32 fifo_lo;		/* lo 32bits of sender's FIFO addr	*/
+	u32 sip;		/* Sender's IP Address			*/
+	u32 tip;		/* IP Address of requested hw addr	*/
+};
 
-struct eth1394_arp{
-	u16 hw_type;
-	u16 proto_type;
-	u8 hw_addr_len;
-	u8 ip_addr_len;
-	u16 opcode,
-	
-	u8 max_rec;
-	u8 sspd;
-	
-	u32 sip;
-	u32 tip;
-}
 
 /* Network timeout */
 #define ETHER1394_TIMEOUT	100000
@@ -260,7 +252,7 @@ struct packet_task {
 	int outstanding_pkts;
 	eth1394_tx_type tx_type;
 	int max_payload;
-	void *packet;
+	struct hpsb_packet *packet;
 	struct eth1394_priv *priv;
 	union eth1394_hdr hdr;
 	u64 addr;
