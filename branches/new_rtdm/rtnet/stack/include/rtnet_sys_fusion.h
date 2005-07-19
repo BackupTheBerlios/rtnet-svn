@@ -149,7 +149,7 @@ static inline void rtos_timer_stop(void)
 #define rtos_nrt_signal_init(nrt_sig, handler)  \
     rtdm_nrt_signal_init(nrt_sig, (rtdm_nrt_sig_handler_t)handler)
 #define rtos_nrt_signal_delete(nrt_sig)     rtdm_nrt_signal_destroy(nrt_sig)
-#define rtos_pend_nrt_signal(nrt_sig)       rtdm_pend_nrt_signal(nrt_sig)
+#define rtos_nrt_pend_signal(nrt_sig)       rtdm_nrt_pend_signal(nrt_sig)
 
 
 /* RT memory management */

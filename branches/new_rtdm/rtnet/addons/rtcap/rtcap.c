@@ -84,7 +84,7 @@ void rtcap_rx_hook(struct rtskb *rtskb)
 
     rtskb->cap_flags |= RTSKB_CAP_SHARED;
 
-    rtos_pend_nrt_signal(&cap_signal);
+    rtos_nrt_pend_signal(&cap_signal);
 }
 
 
@@ -120,7 +120,7 @@ int rtcap_xmit_hook(struct rtskb *rtskb, struct rtnet_device *rtdev)
 
     rtos_spin_unlock_irqrestore(&rtcap_lock, flags);
 
-    rtos_pend_nrt_signal(&cap_signal);
+    rtos_nrt_pend_signal(&cap_signal);
 
     return tap_dev->orig_xmit(rtskb, rtdev);
 }

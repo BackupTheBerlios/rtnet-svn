@@ -335,7 +335,7 @@ static int rtnetproxy_recv(struct rtskb *rtskb)
     else if (write_to_ringbuffer(&ring_rtskb_rtnet_kernel, rtskb))
     {
         /* Switch over to kernel context: */
-        rtos_pend_nrt_signal(&rtnetproxy_signal);
+        rtos_nrt_pend_signal(&rtnetproxy_signal);
     }
     else
     {

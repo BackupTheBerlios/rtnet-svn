@@ -163,7 +163,7 @@ static inline void rtpc_queue_processed_call(struct rt_proc_call *call)
     list_add_tail(&call->list_entry, &processed_calls);
     rtos_spin_unlock_irqrestore(&processed_calls_lock, flags);
 
-    rtos_pend_nrt_signal(&rtpc_nrt_signal);
+    rtos_nrt_pend_signal(&rtpc_nrt_signal);
 }
 
 
