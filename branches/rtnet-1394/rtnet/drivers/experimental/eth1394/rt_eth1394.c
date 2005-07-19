@@ -87,8 +87,6 @@ struct partial_datagram {
 	512, 1024, 2048, 4096,  4096,  4096
 };
 
-static kmem_cache_t *packet_task_cache;
-
 static struct hpsb_highlevel eth1394_highlevel;
 
 /* Use common.lf to determine header len */
@@ -131,8 +129,10 @@ static inline void purge_partial_datagram(struct list_head *old);
 static int eth1394_tx(struct rtskb *skb, struct rtnet_device *dev);
 static void eth1394_iso(struct hpsb_iso *iso, void *arg);
 
+#if 0
 static int eth1394_do_ioctl(struct rtnet_device *dev, struct ifreq *ifr, int cmd);
-	
+#endif
+
 /* Function for incoming 1394 packets */
 static struct hpsb_address_ops eth1394_ops = {
 	.write =	eth1394_write,
@@ -253,6 +253,7 @@ static int eth1394_stop (struct rtnet_device *dev)
 	return 0;
 }
 
+#if 0
 /* Return statistics to the caller */
 static struct net_device_stats *eth1394_stats (struct rtnet_device *dev)
 {
@@ -282,7 +283,7 @@ static int eth1394_change_mtu(struct rtnet_device *dev, int new_mtu)
 	dev->mtu = new_mtu;
 	return 0;
 }
-
+#endif
 
 static inline void eth1394_register_limits(int nodeid, u16 maxpayload,
 					     unsigned char sspd, u64 fifo,
@@ -425,10 +426,8 @@ static void eth1394_add_host (struct hpsb_host *host)
 				 "hostinfo for IEEE 1394 device\n");
 		goto free_hi;
         }
-        
-	retval=rt_register_rtnetdev(dev);
 	
-	if(retval) 
+	if(rt_register_rtnetdev(dev)) 
 	{
 		ETH1394_PRINT (KERN_ERR, dev->name, "Error registering network driver\n");
     		goto free_hi;
@@ -678,20 +677,8 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 					u16 ether_type)
 {
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
-	u64 dest_hw, src_hw;
 	unsigned short ret = 0;
 
-	/* Setup our hw addresses. We use these to build the
-	 * ethernet header.  *///now no need to build the header 
-	if (destid == (LOCAL_BUS | ALL_NODES))
-		dest_hw = ~0ULL;  /* broadcast */
-	else
-		dest_hw = priv->eui[NODEID_TO_NODE(destid)];
-	
-	if (srcid == (LOCAL_BUS | ALL_NODES))
-		src_hw = ~0ULL;  /* broadcast */
-	else
-		src_hw = priv->eui[NODEID_TO_NODE(srcid)];
 
 	/* If this is an ARP packet, convert it. First, we want to make
 	 * use of some of the fields, since they tell us a little bit
@@ -705,17 +692,23 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 		unsigned char *arp_ptr = (unsigned char *)(arp + 1);
 		u64 fifo_addr = (u64)ntohs(arp1394->fifo_hi) << 32 |
 			ntohl(arp1394->fifo_lo);
-		u8 host_max_rec = (be32_to_cpu(priv->host->csr.rom[2]) >>
-				   12) & 0xf;
-		u8 max_rec = min(host_max_rec, (u8)(arp1394->max_rec));
-		u16 maxpayload = min(eth1394_speedto_maxpayload[arp1394->sspd],
-				     (u16)(1 << (max_rec + 1)));
+		u8 max_rec = min(priv->host->csr.max_rec,
+				 (u8)(arp1394->max_rec));
+		int sspd = arp1394->sspd;		
+		u16 maxpayload;
+		/* Sanity check. MacOSX seems to be sending us 131 in this
+		 * field (atleast on my Panther G5). Not sure why. */
+		if (sspd > 5 || sspd < 0)
+			sspd = 0;
+
+		maxpayload = min(eth1394_speedto_maxpayload[sspd], (u16)(1 << (max_rec + 1)));
+
 
 
 		/* Update our speed/payload/fifo_offset table */
 		rtos_spin_lock_irqsave (&priv->lock, flags);
 		eth1394_register_limits(NODEID_TO_NODE(srcid), maxpayload,
-					  arp1394->sspd, arp1394->s_uniq_id,
+					  arp1394->sspd,
 					  fifo_addr, priv);
 		rtos_spin_unlock_irqrestore (&priv->lock, flags);
 
@@ -745,7 +738,7 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 	/* Now add the ethernet header. */
 	//no need to add ethernet header now, since we did not get rid of it on the sending side
 	if (dev->hard_header (skb, dev, __constant_ntohs (ether_type),
-			      &dest_hw, &src_hw, skb->len) >= 0)
+			      &destid, &srcid, skb->len) >= 0)
 		ret = eth1394_type_trans(skb, dev);
 
 	return ret;
@@ -1221,7 +1214,7 @@ static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 	 * and set hw_addr_len, max_rec, sspd, fifo_hi and fifo_lo.  */
 	arp1394->hw_addr_len	= 18; //we also include the source hardware address
 	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);
-	arp1394->max_rec	= (be32_to_cpu(priv->host->csr.rom[2]) >> 12) & 0xf;
+	arp1394->max_rec	= priv->host->csr.max_rec;
 	arp1394->sspd		= priv->sspd[phy_id];
 	arp1394->fifo_hi	= htons (priv->fifo[phy_id] >> 32);
 	arp1394->fifo_lo	= htonl (priv->fifo[phy_id] & ~0x0);
@@ -1492,20 +1485,17 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	unsigned int max_payload;
 	u16 dg_size;
 	u16 dgl;
-	struct node_entry *ne;
 	
 	//we try to find the available ptask struct, if failed, we can not send packet
-	struct list_head *lh;
-	struct packet_task* ptask,p;
-	list_for_each(lh, &priv->ptask_list){
-		p=list_entry(lh, struct packet_task, lh);
-		if(p->packet == NULL){
-			//we find a unused ptask
-			ptask = p;
+	struct packet_task *ptask = NULL;
+	int i;
+	for(i=0;i<20;i++){
+		if(priv->ptask_list[i].packet == NULL){
+			ptask = &priv->ptask_list[i];
 			break;
 		}
 	}
-	if(ptask==NULL)
+	if(ptask == NULL)
 		return -EBUSY;
 	
 	
@@ -1534,13 +1524,15 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	//dont get rid of the fake eth1394 header, since we need it on the receiving side
 	//eth = (struct eth1394hdr*)skb->data;
 
-	//find the node id via our fake MAC address
-	ne = hpsb_guid_get_entry(be64_to_cpu(*(u64*)eth->h_dest));
-	if (!ne)
-		dest_node = LOCAL_BUS | ALL_NODES;
-	else
-		dest_node = ne->nodeid;
-
+	//~ //find the node id via our fake MAC address
+	//~ ne = hpsb_guid_get_entry(be64_to_cpu(*(u64*)eth->h_dest));
+	//~ if (!ne)
+		//~ dest_node = LOCAL_BUS | ALL_NODES;
+	//~ else
+		//~ dest_node = ne->nodeid;
+	//now it is much easier
+	dest_node = *(u16*)eth->h_dest;
+	
 	proto = eth->h_proto;
 
 	/* If this is an ARP packet, convert it */
@@ -1708,3 +1700,9 @@ static int eth1394_ethtool_ioctl(struct rtnet_device *dev, void *useraddr)
  MODULE_LICENSE("GPL");
 
   
+ 
+ 
+ 
+ 
+ 
+ 

@@ -65,57 +65,6 @@ struct pdg_list {
 	spinlock_t lock;		/* partial datagram lock		*/
 };
 
-/* Private structure for our ethernet driver */
-struct eth1394_priv {
-	struct net_device_stats stats;	/* Device stats			 */
-	struct hpsb_host *host;		/* The card for this dev	 */
-	u16 maxpayload[NODE_SET];	/* Max payload per node		 */
-	unsigned char sspd[NODE_SET];	/* Max speed per node		 */
-	u64 fifo[ALL_NODES];		/* FIFO offset per node		 */
-	u64 eui[ALL_NODES];		/* EUI-64 per node		 */
-	rtos_spinlock_t lock;		/* Private lock			 */
-	int broadcast_channel;		/* Async stream Broadcast Channel */
-	enum eth1394_bc_states bc_state; /* broadcast channel state	 */
-	struct hpsb_iso	*iso;
-	struct pdg_list pdg[ALL_NODES]; /* partial RX datagram lists     */
-	int dgl[NODE_SET];              /* Outgoing datagram label per node */
-	
-	// *** RTnet ***
-	/* The addresses of a Tx/Rx-in-place packets/buffers. */
-	struct rtskb *tx_skbuff[TX_RING_SIZE];
-	struct rtskb *rx_skbuff[RX_RING_SIZE];
-	struct rtskb_queue skb_pool;
-	struct list_head	ptask_list; //the list of pre-allocated ptask structure
-	// *** RTnet ***
-};
-
-
-
-struct host_info {
-	struct hpsb_host *host;
-	//******RTnet*******
-	struct rtnet_device *dev;
-};
-
-
-/* Define a fake hardware header format for the networking core.  Note that
- * header size cannot exceed 16 bytes as that is the size of the header cache.
- * {Also, we do not need the source address in the header so we omit it and
- * keep the header to under 16 bytes} added now, since some protocol needs 
- * this header*/
-#define ETH1394_ALEN (8)
-#define ETH1394_HLEN (18)
-
-struct eth1394hdr {
-	unsigned char	h_dest[ETH1394_ALEN];	/* destination eth1394 addr	*/
-	unsigned char	h_source[ETH1394_ALEN];	/*source eth1394 addr */
-	unsigned short	h_proto;		/* packet type ID field	*/
-}  __attribute__((packed));
-
-
-
-typedef enum {ETH1394_GASP, ETH1394_WRREQ} eth1394_tx_type;
-
 /* IP1394 headers */
 #include <asm/byteorder.h>
 
@@ -135,6 +84,38 @@ struct eth1394_uf_hdr {
 #else
 #error Unknown bit field type
 #endif
+
+/* End of IP1394 headers */
+
+/* Fragment types */
+#define ETH1394_HDR_LF_UF	0	/* unfragmented		*/
+#define ETH1394_HDR_LF_FF	1	/* first fragment	*/
+#define ETH1394_HDR_LF_LF	2	/* last fragment	*/
+#define ETH1394_HDR_LF_IF	3	/* interior fragment	*/
+
+#define IP1394_HW_ADDR_LEN	16	/* As per RFC		*/
+
+/* Our arp packet (ARPHRD_IEEE1394) */
+struct eth1394_arp {
+	u16 hw_type;		/* 0x0018	*/
+	u16 proto_type;		/* 0x0806	*/
+	u8 hw_addr_len;		/* 16 		*/
+	u8 ip_addr_len;		/* 4		*/
+	u16 opcode;		/* ARP Opcode	*/
+	/* Above is exactly the same format as struct arphdr */
+
+	u64 s_uniq_id;		/* Sender's 64bit EUI			*/
+	u8 max_rec;		/* Sender's max packet size		*/
+	u8 sspd;		/* Sender's max speed			*/
+	u16 fifo_hi;		/* hi 16bits of sender's FIFO addr	*/
+	u32 fifo_lo;		/* lo 32bits of sender's FIFO addr	*/
+	u32 sip;		/* Sender's IP Address			*/
+	u32 tip;		/* IP Address of requested hw addr	*/
+};
+
+
+/* Network timeout */
+#define ETHER1394_TIMEOUT	100000
 
 /* First fragment */
 #if defined __BIG_ENDIAN_BITFIELD
@@ -213,37 +194,7 @@ union eth1394_hdr {
 	struct eth1394_hdr_words words;
 };
 
-/* End of IP1394 headers */
-
-/* Fragment types */
-#define ETH1394_HDR_LF_UF	0	/* unfragmented		*/
-#define ETH1394_HDR_LF_FF	1	/* first fragment	*/
-#define ETH1394_HDR_LF_LF	2	/* last fragment	*/
-#define ETH1394_HDR_LF_IF	3	/* interior fragment	*/
-
-#define IP1394_HW_ADDR_LEN	16	/* As per RFC		*/
-
-/* Our arp packet (ARPHRD_IEEE1394) */
-struct eth1394_arp {
-	u16 hw_type;		/* 0x0018	*/
-	u16 proto_type;		/* 0x0806	*/
-	u8 hw_addr_len;		/* 16 		*/
-	u8 ip_addr_len;		/* 4		*/
-	u16 opcode;		/* ARP Opcode	*/
-	/* Above is exactly the same format as struct arphdr */
-
-	u64 s_uniq_id;		/* Sender's 64bit EUI			*/
-	u8 max_rec;		/* Sender's max packet size		*/
-	u8 sspd;		/* Sender's max speed			*/
-	u16 fifo_hi;		/* hi 16bits of sender's FIFO addr	*/
-	u32 fifo_lo;		/* lo 32bits of sender's FIFO addr	*/
-	u32 sip;		/* Sender's IP Address			*/
-	u32 tip;		/* IP Address of requested hw addr	*/
-};
-
-
-/* Network timeout */
-#define ETHER1394_TIMEOUT	100000
+typedef enum {ETH1394_GASP, ETH1394_WRREQ} eth1394_tx_type;
 
 /* This is our task struct. It's used for the packet complete callback.  */
 struct packet_task {
@@ -259,5 +210,52 @@ struct packet_task {
 	u16 dest_node;
 	unsigned int priority; //the priority mapped to priority on 1394 transaction
 };
+
+/* Private structure for our ethernet driver */
+struct eth1394_priv {
+	struct net_device_stats stats;	/* Device stats			 */
+	struct hpsb_host *host;		/* The card for this dev	 */
+	u16 maxpayload[NODE_SET];	/* Max payload per node		 */
+	unsigned char sspd[NODE_SET];	/* Max speed per node		 */
+	u64 fifo[ALL_NODES];		/* FIFO offset per node		 */
+	u64 eui[ALL_NODES];		/* EUI-64 per node		 */
+	rtos_spinlock_t lock;		/* Private lock			 */
+	int broadcast_channel;		/* Async stream Broadcast Channel */
+	enum eth1394_bc_states bc_state; /* broadcast channel state	 */
+	struct hpsb_iso	*iso;
+	struct pdg_list pdg[ALL_NODES]; /* partial RX datagram lists     */
+	int dgl[NODE_SET];              /* Outgoing datagram label per node */
+	
+	// *** RTnet ***
+	/* The addresses of a Tx/Rx-in-place packets/buffers. */
+	struct rtskb *tx_skbuff[TX_RING_SIZE];
+	struct rtskb *rx_skbuff[RX_RING_SIZE];
+	struct rtskb_queue skb_pool;
+	struct packet_task ptask_list[20]; //the list of pre-allocated ptask structure
+	// *** RTnet ***
+};
+
+
+
+struct host_info {
+	struct hpsb_host *host;
+	//******RTnet*******
+	struct rtnet_device *dev;
+};
+
+
+/* Define a fake hardware header format for the networking core.  Note that
+ * header size cannot exceed 16 bytes as that is the size of the header cache.
+ * {Also, we do not need the source address in the header so we omit it and
+ * keep the header to under 16 bytes} added now, since some protocol needs 
+ * this header*/
+#define ETH1394_ALEN (2)
+#define ETH1394_HLEN (6)
+
+struct eth1394hdr {
+	unsigned char	h_dest[ETH1394_ALEN];	/* destination eth1394 addr	*/
+	unsigned char	h_source[ETH1394_ALEN];	/*source eth1394 addr */
+	unsigned short	h_proto;		/* packet type ID field	*/
+}  __attribute__((packed));
 
 #endif /* __ETH1394_H */
