@@ -172,7 +172,7 @@ static void do_stacktask(int mgr_id)
 
             skb = __rtskb_dequeue(&rxqueue);
             if (!skb) {
-                rtos_spin_unlock_irqrestore(&rxqueue.lock, flags);
+		rtos_spin_unlock_irqrestore(&rxqueue.lock, flags);
                 break;
             }
             rtdev = skb->rtdev;
@@ -192,7 +192,7 @@ static void do_stacktask(int mgr_id)
             if ((pt != NULL) && (pt->type == skb->protocol)) {
                 pt->refcount++;
                 rtos_spin_unlock_irqrestore(&rt_packets_lock, flags);
-
+		    
                 pt->handler(skb, pt);
 
                 rtos_spin_lock_irqsave(&rt_packets_lock, flags);
@@ -242,8 +242,8 @@ int rt_stack_mgr_init (struct rtnet_mgr *mgr)
 
     rtos_event_sem_init(&mgr->event);
 
-    return rtos_task_init(&mgr->task, do_stacktask, (int)mgr,
-                          RTNET_STACK_PRIORITY);
+    return rtos_task_init(&mgr->task, do_stacktask, (int)mgr, 1000);
+                          //~ RTNET_STACK_PRIORITY);
 }
 
 

@@ -202,7 +202,10 @@ static int eth1394_init_bc(struct rtnet_device *dev)
 
 			priv->iso = hpsb_iso_recv_init(priv->host, 16 * 4096,
 						       16, priv->broadcast_channel, HPSB_ISO_DMA_PACKET_PER_BUFFER,
-						       1, eth1394_iso, 0, IEEE1394_PRIORITY_HIGHEST);
+						       1, eth1394_iso, 0, "eth1394_iso", IEEE1394_PRIORITY_HIGHEST);
+			
+			DEBUG_PRINT("pointer to %s(%s) current priv->iso->channel: %d\n",__FILE__,__FUNCTION__,
+								priv->iso->channel);
 			if (priv->iso == NULL) {
 				ETH1394_PRINT(KERN_ERR, dev->name,
 					      "failed to change broadcast "
@@ -286,7 +289,7 @@ static int eth1394_change_mtu(struct rtnet_device *dev, int new_mtu)
 #endif
 
 static inline void eth1394_register_limits(int nodeid, u16 maxpayload,
-					     unsigned char sspd, u64 fifo,
+					     unsigned char sspd, 
 					     struct eth1394_priv *priv)
 {
 	
@@ -297,7 +300,6 @@ static inline void eth1394_register_limits(int nodeid, u16 maxpayload,
 
 	priv->maxpayload[nodeid]	= maxpayload;
 	priv->sspd[nodeid]		= sspd;
-	priv->fifo[nodeid]		= fifo;
 	//priv->eui[nodeid]		= eui;
 
 	priv->maxpayload[ALL_NODES] = min(priv->maxpayload[ALL_NODES], maxpayload);
@@ -330,8 +332,7 @@ static void eth1394_reset_priv (struct rtnet_device *dev, int set_mtu)
 
 	/* Register our limits now */
 	eth1394_register_limits(phy_id, maxpayload,
-				    host->speed_map[(phy_id << 6) + phy_id],
-				ETHER1394_REGION_ADDR, priv);
+				    host->speed_map[(phy_id << 6) + phy_id], priv);
 
 	/* We'll use our maxpayload as the default mtu */
 	if (set_mtu) {
@@ -450,7 +451,9 @@ static void eth1394_add_host (struct hpsb_host *host)
 				       ETHER1394_GASP_BUFFERS,
 				       priv->broadcast_channel,
 				       HPSB_ISO_DMA_PACKET_PER_BUFFER,
-				       1, eth1394_iso, 0, IEEE1394_PRIORITY_HIGHEST);
+				       1, eth1394_iso, 0, "eth1394_iso", IEEE1394_PRIORITY_HIGHEST);
+	
+								
 	if (priv->iso == NULL) {
 		ETH1394_PRINT(KERN_ERR, dev->name,
 			      "Could not allocate isochronous receive context "
@@ -458,6 +461,9 @@ static void eth1394_add_host (struct hpsb_host *host)
 		priv->bc_state = ETHER1394_BC_ERROR;
 		goto unregister_dev;
 	} else {
+		DEBUG_PRINT("pointer to %s(%s) current priv->iso->channel: %d\n",__FILE__,__FUNCTION__,
+								priv->iso->channel);
+		
 		if (hpsb_iso_recv_start(priv->iso, -1, (1 << 3), -1) < 0){
 			priv->bc_state = ETHER1394_BC_STOPPED;
 			goto unregister_dev;
@@ -515,7 +521,7 @@ static void eth1394_host_reset (struct hpsb_host *host)
 
 	/* Reset our private host data, but not our mtu */
 	rtnetif_stop_queue (dev);
-	eth1394_reset_priv (dev, 0);
+	eth1394_reset_priv (dev, 1);
 	rtnetif_wake_queue (dev);
 }
 
@@ -679,19 +685,22 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	unsigned short ret = 0;
 
-
+	int i;
+	rtos_print("SKB over FireWire:");
+	for (i = 0; i < skb->len; i++)
+		rtos_print(" %02x", skb->data[i]);
+	rtos_print("\n");
+	
 	/* If this is an ARP packet, convert it. First, we want to make
 	 * use of some of the fields, since they tell us a little bit
 	 * about the sending machine.  */
 	if (ether_type == __constant_htons (ETH_P_ARP)) {
 		unsigned long flags;
 		struct eth1394_arp *arp1394 = 
-				(struct eth1394_arp*)((u8 *)skb->data + ETH1394_HLEN);
+				(struct eth1394_arp*)((u8 *)skb->data);
 		struct arphdr *arp = 
-				(struct arphdr *)((u8 *)skb->data + ETH1394_HLEN);
+				(struct arphdr *)((u8 *)skb->data);
 		unsigned char *arp_ptr = (unsigned char *)(arp + 1);
-		u64 fifo_addr = (u64)ntohs(arp1394->fifo_hi) << 32 |
-			ntohl(arp1394->fifo_lo);
 		u8 max_rec = min(priv->host->csr.max_rec,
 				 (u8)(arp1394->max_rec));
 		int sspd = arp1394->sspd;		
@@ -709,7 +718,7 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 		rtos_spin_lock_irqsave (&priv->lock, flags);
 		eth1394_register_limits(NODEID_TO_NODE(srcid), maxpayload,
 					  arp1394->sspd,
-					  fifo_addr, priv);
+						priv);
 		rtos_spin_unlock_irqrestore (&priv->lock, flags);
 
 		/* Now that we're done with the 1394 specific stuff, we'll
@@ -723,7 +732,7 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 		 * eth1394_register_limits() before munging the data for the
 		 * higher level IP stack. */
 
-		arp->ar_hln = 8;
+		arp->ar_hln = ETH1394_ALEN;
 		arp_ptr += arp->ar_hln;		/* skip over sender unique id */
 		*(u32*)arp_ptr = arp1394->sip;	/* move sender IP addr */
 		arp_ptr += arp->ar_pln;		/* skip over sender IP addr */
@@ -741,6 +750,10 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 			      &destid, &srcid, skb->len) >= 0)
 		ret = eth1394_type_trans(skb, dev);
 
+	rtos_print("SKB over FireWire:");
+	for (i = 0; i < skb->len; i++)
+		rtos_print(" %02x", skb->data[i]);
+	rtos_print("\n");
 	return ret;
 }
 
@@ -933,7 +946,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 	hdr_len = hdr_type_len[hdr->common.lf];
 	
 	if (hdr->common.lf == ETH1394_HDR_LF_UF) {
-		//rtos_print("a single datagram has been received\n");
+		rtos_print("a single datagram has been received\n");
 		/* An unfragmented datagram has been received by the ieee1394
 		 * bus. Build an skbuff around it so we can pass it to the
 		 * high level network layer. */
@@ -1075,6 +1088,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 
 	rtos_spin_lock_irqsave(&priv->lock, flags);
 	if (!skb->protocol) {
+		DEBUG_PRINT("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 		priv->stats.rx_errors++;
 		priv->stats.rx_dropped++;
 		//dev_kfree_skb_any(skb);
@@ -1087,7 +1101,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 		priv->stats.rx_dropped++;
 		goto bad_proto;
 	}*/
-	
+	DEBUG_PRINT("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	rtnetif_rx(skb);//finally, we deliver the packet
 
 	/* Statistics */
@@ -1136,6 +1150,8 @@ bad_proto:
  */
 static void eth1394_iso(struct hpsb_iso *iso, void *arg)
 {
+	DEBUG_PRINT("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
+	
 	quadlet_t *data;
 	char *buf;
 	struct rtnet_device *dev;
@@ -1217,8 +1233,6 @@ static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);
 	arp1394->max_rec	= priv->host->csr.max_rec;
 	arp1394->sspd		= priv->sspd[phy_id];
-	arp1394->fifo_hi	= htons (priv->fifo[phy_id] >> 32);
-	arp1394->fifo_lo	= htonl (priv->fifo[phy_id] & ~0x0);
 
 	return;
 }
@@ -1347,6 +1361,7 @@ static inline void eth1394_prep_gasp_packet(struct hpsb_packet *p,
 	p->header[0] = (length << 16) | (3 << 14)
 		| ((priv->broadcast_channel) << 8)
 		| (TCODE_STREAM_DATA << 4);
+	DEBUG_PRINT("pointer to %s(%s) p->header[0]:%08x\n",__FILE__,__FUNCTION__,p->header[0]);
 	p->data_size = length;
 	p->data = ((quadlet_t*)skb->data) - 2; //we need 64bits for extra spec_id and gasp version. 
 	p->data[0] = cpu_to_be32((priv->host->node_id << 16) |
@@ -1382,14 +1397,15 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 {
 	struct eth1394_priv *priv = ptask->priv;
 	struct hpsb_packet *packet = NULL;
-
+	DEBUG_PRINT("pointer to %s(%s): tx_len is %d\n",__FILE__,__FUNCTION__,tx_len);
+	
 	packet = eth1394_alloc_common_packet(priv->host, ptask->priority);
 	if (!packet)
 		return -1;
 
 	if (ptask->tx_type == ETH1394_GASP) {
 		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
-		int length = tx_len + (2 * sizeof(quadlet_t));
+		int length = tx_len + (2 * sizeof(quadlet_t)); //for the extra gasp overhead
 
 		eth1394_prep_gasp_packet(packet, priv, ptask->skb, length);
 	} else if (eth1394_prep_write_packet(packet, priv->host,
@@ -1588,13 +1604,14 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 		 * been added to eth1394.  Until then, we need an ARP packet
 		 * after a bus reset from the current destination node so that
 		 * we can get FIFO information. */
-		if (priv->fifo[NODEID_TO_NODE(dest_node)] == 0ULL) {
-			ret = -EAGAIN;
-			goto fail;
-		}
+		//~ if (priv->fifo[NODEID_TO_NODE(dest_node)] == 0ULL) {
+			//~ ret = -EAGAIN;
+			//~ goto fail;
+		//~ }
 
 		rtos_spin_lock_irqsave(&priv->lock, flags);
-		addr = priv->fifo[NODEID_TO_NODE(dest_node)];
+		//~ addr = priv->fifo[NODEID_TO_NODE(dest_node)];
+		addr = dest_node | ETHER1394_REGION_ADDR;
 		rtos_spin_unlock_irqrestore(&priv->lock, flags);
 
 		ptask->addr = addr;

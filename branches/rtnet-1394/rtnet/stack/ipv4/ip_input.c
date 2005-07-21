@@ -128,6 +128,7 @@ int rt_ip_rcv(struct rtskb *skb, struct rtpacket_type *pt)
     struct iphdr *iph;
     __u32 len;
 
+    rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
     /* When the interface is in promisc. mode, drop all the crap
      * that it receives, do not try to analyse it.
      */

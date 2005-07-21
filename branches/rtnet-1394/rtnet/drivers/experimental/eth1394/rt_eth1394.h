@@ -104,11 +104,9 @@ struct eth1394_arp {
 	u16 opcode;		/* ARP Opcode	*/
 	/* Above is exactly the same format as struct arphdr */
 
-	u64 s_uniq_id;		/* Sender's 64bit EUI			*/
+	u16 s_uniq_id;		/* Sender's 64bit EUI			*/
 	u8 max_rec;		/* Sender's max packet size		*/
 	u8 sspd;		/* Sender's max speed			*/
-	u16 fifo_hi;		/* hi 16bits of sender's FIFO addr	*/
-	u32 fifo_lo;		/* lo 32bits of sender's FIFO addr	*/
 	u32 sip;		/* Sender's IP Address			*/
 	u32 tip;		/* IP Address of requested hw addr	*/
 };
