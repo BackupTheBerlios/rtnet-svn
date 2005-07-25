@@ -315,7 +315,8 @@ RTAI_PROTO(ssize_t, sendmsg_rt, (int fd, const struct msghdr *msg, int flags))
 #endif /* CONFIG_NEWLXRT */
 
 
-#if defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074)
+#if defined(CONFIG_FUSION_072) || defined(CONFIG_FUSION_074) || \
+    defined(CONFIG_FUSION_083)
 
 #include <nucleus/asm/syscall.h>
 
@@ -480,8 +481,8 @@ static inline int getsockname_rt(int fd, struct sockaddr *name,
     return ioctl_rt(fd, RTIOC_GETSOCKNAME, &args);
 }
 
-static inline int rt_socket_getpeername(int fd, struct sockaddr *name,
-                                        socklen_t *namelen)
+static inline int getpeername_rt(int fd, struct sockaddr *name,
+                                 socklen_t *namelen)
 {
     struct rtdm_getsockaddr_args args = {name, namelen};
 

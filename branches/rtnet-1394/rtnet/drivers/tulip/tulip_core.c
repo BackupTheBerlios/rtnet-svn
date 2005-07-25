@@ -697,7 +697,6 @@ tulip_start_xmit(struct /*RTnet*/rtskb *skb, /*RTnet*/struct rtnet_device *rtdev
 	dma_addr_t mapping;
 	/*RTnet*/
 	unsigned long flags;
-	rtos_time_t time;
 
 	rtos_spin_lock_irqsave(&tp->lock, flags);
 
@@ -739,11 +738,8 @@ tulip_start_xmit(struct /*RTnet*/rtskb *skb, /*RTnet*/struct rtnet_device *rtdev
 
 	/*RTnet*/
 	/* get and patch time stamp just before the transmission */
-	if (skb->xmit_stamp) {
-		rtos_get_time(&time);
-		*skb->xmit_stamp = cpu_to_be64(rtos_time_to_nanosecs(&time) +
-			*skb->xmit_stamp);
-	}
+	if (skb->xmit_stamp)
+		*skb->xmit_stamp = cpu_to_be64(rtos_get_time() + *skb->xmit_stamp);
 	/*RTnet*/
 
 	wmb();
@@ -1235,7 +1231,7 @@ static void set_rx_mode(/*RTnet*/struct rtnet_device *rtdev)
 }
 #endif /* set_rx_mode */
 
-#ifdef CONFIG_TULIP_MWI
+#ifdef XXX_CONFIG_TULIP_MWI
 static void __devinit tulip_mwi_config (struct pci_dev *pdev,
 					struct net_device *dev)
 {
@@ -1245,7 +1241,7 @@ static void __devinit tulip_mwi_config (struct pci_dev *pdev,
 	u32 csr0;
 
 	if (tulip_debug > 3)
-		printk(KERN_DEBUG "%s: tulip_mwi_config()\n", pdev->slot_name);
+		printk(KERN_DEBUG "%s: tulip_mwi_config()\n", pci_name(pdev));
 
 	tp->csr0 = csr0 = 0;
 
@@ -1313,7 +1309,7 @@ out:
 	tp->csr0 = csr0;
 	if (tulip_debug > 2)
 		printk(KERN_DEBUG "%s: MWI config cacheline=%d, csr0=%08x\n",
-		       pdev->slot_name, cache, csr0);
+		       pci_name(pdev), cache, csr0);
 }
 #endif
 
@@ -1443,7 +1439,7 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 
 	if (pci_resource_len (pdev, 0) < tulip_tbl[chip_idx].io_size) {
 		printk(KERN_ERR PFX "%s: I/O region (0x%lx@0x%lx) too small, "
-			"aborting\n", pdev->slot_name,
+			"aborting\n", pci_name(pdev),
 			pci_resource_len (pdev, 0),
 			pci_resource_start (pdev, 0));
 		goto err_out_free_netdev;
@@ -1493,7 +1489,7 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 	rtdev->base_addr = ioaddr;
 	rtdev->irq = irq;
 
-#ifdef CONFIG_TULIP_MWI
+#ifdef XXX_CONFIG_TULIP_MWI
 	if (!force_csr0 && (tp->flags & HAS_PCI_MWI))
 		tulip_mwi_config (pdev, rtdev);
 #else

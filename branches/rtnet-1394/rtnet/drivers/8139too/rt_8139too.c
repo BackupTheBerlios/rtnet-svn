@@ -640,7 +640,7 @@ static int __devinit rtl8139_init_board (struct pci_dev *pdev,
         /* dev and rtdev->priv zeroed in alloc_etherdev */
         rtdev=rt_alloc_etherdev(sizeof (struct rtl8139_private));
         if (rtdev==NULL) {
-                rtos_print (KERN_ERR PFX "%s: Unable to alloc new net device\n", pdev->slot_name);
+                rtos_print (KERN_ERR PFX "%s: Unable to alloc new net device\n", pci_name(pdev));
                 return -ENOMEM;
         }
         rtdev_alloc_name(rtdev, "rteth%d");
@@ -672,25 +672,25 @@ static int __devinit rtl8139_init_board (struct pci_dev *pdev,
 #ifdef USE_IO_OPS
         /* make sure PCI base addr 0 is PIO */
         if (!(pio_flags & IORESOURCE_IO)) {
-                rtos_print (KERN_ERR PFX "%s: region #0 not a PIO resource, aborting\n", pdev->slot_name);
+                rtos_print (KERN_ERR PFX "%s: region #0 not a PIO resource, aborting\n", pci_name(pdev));
                 rc = -ENODEV;
                 goto err_out;
         }
         /* check for weird/broken PCI region reporting */
         if (pio_len < RTL_MIN_IO_SIZE) {
-                rtos_print (KERN_ERR PFX "%s: Invalid PCI I/O region size(s), aborting\n", pdev->slot_name);
+                rtos_print (KERN_ERR PFX "%s: Invalid PCI I/O region size(s), aborting\n", pci_name(pdev));
                 rc = -ENODEV;
                 goto err_out;
         }
 #else
         /* make sure PCI base addr 1 is MMIO */
         if (!(mmio_flags & IORESOURCE_MEM)) {
-                rtos_print(KERN_ERR PFX "%s: region #1 not an MMIO resource, aborting\n", pdev->slot_name);
+                rtos_print(KERN_ERR PFX "%s: region #1 not an MMIO resource, aborting\n", pci_name(pdev));
                 rc = -ENODEV;
                 goto err_out;
         }
         if (mmio_len < RTL_MIN_IO_SIZE) {
-                rtos_print(KERN_ERR PFX "%s: Invalid PCI mem region size(s), aborting\n", pdev->slot_name);
+                rtos_print(KERN_ERR PFX "%s: Invalid PCI mem region size(s), aborting\n", pci_name(pdev));
                 rc = -ENODEV;
                 goto err_out;
         }
@@ -711,7 +711,7 @@ static int __devinit rtl8139_init_board (struct pci_dev *pdev,
         /* ioremap MMIO region */
         ioaddr = ioremap (mmio_start, mmio_len);
         if (ioaddr == NULL) {
-                rtos_print(KERN_ERR PFX "%s: cannot remap MMIO, aborting\n", pdev->slot_name);
+                rtos_print(KERN_ERR PFX "%s: cannot remap MMIO, aborting\n", pci_name(pdev));
                 rc = -EIO;
                 goto err_out;
         }
@@ -724,7 +724,7 @@ static int __devinit rtl8139_init_board (struct pci_dev *pdev,
 
         /* check for missing/broken hardware */
         if (RTL_R32 (TxConfig) == 0xFFFFFFFF) {
-                rtos_print(KERN_ERR PFX "%s: Chip not responding, ignoring board\n", pdev->slot_name);
+                rtos_print(KERN_ERR PFX "%s: Chip not responding, ignoring board\n", pci_name(pdev));
                 rc = -EIO;
                 goto err_out;
         }
@@ -815,7 +815,7 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
         if (pdev->vendor == PCI_VENDOR_ID_REALTEK &&
             pdev->device == PCI_DEVICE_ID_REALTEK_8139 && pci_rev >= 0x20) {
                 rtos_print(KERN_INFO PFX "pci dev %s (id %04x:%04x rev %02x) is an enhanced 8139C+ chip\n",
-                          pdev->slot_name, pdev->vendor, pdev->device, pci_rev);
+                          pci_name(pdev), pdev->vendor, pdev->device, pci_rev);
                 rtos_print(KERN_INFO PFX "Use the \"8139cp\" driver for improved performance and stability.\n");
         }
 
@@ -1319,9 +1319,6 @@ static int rtl8139_start_xmit (struct rtskb *skb, struct rtnet_device *rtdev)
         unsigned int entry;
         unsigned int len = skb->len;
         unsigned long flags;
-        rtos_time_t time;
-
-        rtos_irq_disable(&tp->irq_handle);
 
         /* Calculate the next Tx descriptor entry. */
         entry = tp->cur_tx % NUM_TX_DESC;
@@ -1329,18 +1326,18 @@ static int rtl8139_start_xmit (struct rtskb *skb, struct rtnet_device *rtdev)
         if (likely(len < TX_BUF_SIZE)) {
                 if (unlikely(skb->xmit_stamp != NULL)) {
                         rtos_local_irqsave(flags);
-                        rtos_get_time(&time);
-                        *skb->xmit_stamp =
-                                cpu_to_be64(rtos_time_to_nanosecs(&time) +
-                                *skb->xmit_stamp);
-                } else
-                        rtos_saveflags(flags);
-
-                rtskb_copy_and_csum_dev(skb, tp->tx_buf[entry]);
+                        *skb->xmit_stamp = cpu_to_be64(rtos_get_time() +
+                                                       *skb->xmit_stamp);
+                        /* typically, we are only copying a few bytes here */
+                        rtskb_copy_and_csum_dev(skb, tp->tx_buf[entry]);
+                } else {
+                        /* copy larger packets outside the lock */
+                        rtskb_copy_and_csum_dev(skb, tp->tx_buf[entry]);
+                        rtos_local_irqsave(flags);
+                }
         } else {
                 dev_kfree_rtskb(skb);
                 tp->stats.tx_dropped++;
-                rtos_irq_enable(&tp->irq_handle);
                 return 0;
         }
 
@@ -1354,8 +1351,7 @@ static int rtl8139_start_xmit (struct rtskb *skb, struct rtnet_device *rtdev)
         if ((tp->cur_tx - NUM_TX_DESC) == tp->dirty_tx)
                 rtnetif_stop_queue (rtdev);
         rtos_spin_unlock_irqrestore(&tp->lock, flags);
-        rtos_irq_enable(&tp->irq_handle);
-        
+
         dev_kfree_rtskb(skb);
 
 #ifdef DEBUG
@@ -1514,7 +1510,7 @@ static void rtl8139_rx_err
 
 static void rtl8139_rx_interrupt (struct rtnet_device *rtdev,
                                   struct rtl8139_private *tp, void *ioaddr,
-                                  rtos_time_t *time_stamp)
+                                  nanosecs_t *time_stamp)
 {
         unsigned char *rx_ring;
         u16 cur_rx;
@@ -1568,7 +1564,7 @@ static void rtl8139_rx_interrupt (struct rtnet_device *rtdev,
 
                 skb = dev_alloc_rtskb (pkt_size + 2, &tp->skb_pool);
                 if (skb) {
-                        memcpy(&skb->time_stamp, time_stamp, sizeof(rtos_time_t));
+                        skb->time_stamp = *time_stamp;
                         skb->rtdev = rtdev;
                         rtskb_reserve (skb, 2);        /* 16 byte align the IP fields. */
 
@@ -1651,7 +1647,9 @@ static void rtl8139_weird_interrupt (struct rtnet_device *rtdev,
    after the Tx thread. */
 static RTOS_IRQ_HANDLER_PROTO(rtl8139_interrupt)
 {
-        struct rtnet_device *rtdev = (struct rtnet_device *)RTOS_IRQ_GET_ARG();
+        nanosecs_t time_stamp = rtos_get_time();
+
+        struct rtnet_device *rtdev = RTOS_IRQ_GET_ARG(struct rtnet_device);
         struct rtl8139_private *tp = rtdev->priv;
 
         int boguscnt = max_interrupt_work;
@@ -1662,9 +1660,6 @@ static RTOS_IRQ_HANDLER_PROTO(rtl8139_interrupt)
         int link_changed = 0; /* avoid bogus "uninit" warning */
 
         int saved_status = 0;
-        rtos_time_t time_stamp;
-
-        rtos_get_time(&time_stamp);
 
         rtos_spin_lock(&tp->lock);
 

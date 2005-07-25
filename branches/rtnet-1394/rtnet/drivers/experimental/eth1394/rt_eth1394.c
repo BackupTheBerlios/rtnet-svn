@@ -1,8 +1,10 @@
-/* rtfirewire/highlevel/eth1394/rt_eth1394.c
+/*
+ * eth1394.h -- Driver for Ethernet emulation over FireWire, (adapted from Linux1394)
+ * 		working under RTnet.
  *
-* Ehernet Emulation on RT-FireWire.
+ * Copyright (C) 2005 	Zhang Yuchen <yuchen623@gmail.com>
  *
- * Copyright (C)  2005 Zhang Yuchen <y.zhang-4@student.utwente.nl>
+ * Mainly based on work by Emanuel Pirker and Andreas E. Bombe
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,9 +17,10 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+ 
  #include <linux/module.h>
  #include <linux/config.h>
  #include <linux/init.h>
@@ -40,10 +43,9 @@
 #include <highlevel.h>
 #include <iso.h>
  
- #define driver_name	"Eth1394"
+ #define driver_name	"RT-ETH1394"
  
- #define ARPHRD_IEEE1394	24//stolen from linux/if_arp.h
- 
+
  #define ETH1394_PRINT_G(level, fmt, args...) \
 	rtos_print(level "%s: " fmt, driver_name, ## args)
 
@@ -51,6 +53,7 @@
 	rtos_print(level "%s: %s: " fmt, driver_name, dev_name, ## args)
 
 #define ETH1394_DEBUG 1
+
 #ifdef ETH1394_DEBUG
 #define DEBUGP(fmt, args...) \
 	rtos_print(KERN_ERR "%s:%s[%d]: " fmt "\n", driver_name, __FUNCTION__, __LINE__, ## args)
@@ -263,15 +266,14 @@ static struct net_device_stats *eth1394_stats (struct rtnet_device *dev)
 	return &(((struct eth1394_priv *)dev->priv)->stats);
 }
 
-/* for now, we ignore this. */
 static void eth1394_tx_timeout (struct rtnet_device *dev)
 {
-	//~ ETH1394_PRINT (KERN_ERR, dev->name, "Timeout, resetting host %s\n",
-		       //~ ((struct eth1394_priv *)(dev->priv))->host->driver->name);
+	ETH1394_PRINT (KERN_ERR, dev->name, "Timeout, resetting host %s\n",
+		       ((struct eth1394_priv *)(dev->priv))->host->driver->name);
 
-	//~ highlevel_host_reset (((struct eth1394_priv *)(dev->priv))->host);
+	highlevel_host_reset (((struct eth1394_priv *)(dev->priv))->host);
 
-	//~ rtnetif_wake_queue (dev);
+	rtnetif_wake_queue (dev);
 	return;
 }
 
@@ -300,8 +302,6 @@ static inline void eth1394_register_limits(int nodeid, u16 maxpayload,
 
 	priv->maxpayload[nodeid]	= maxpayload;
 	priv->sspd[nodeid]		= sspd;
-	//priv->eui[nodeid]		= eui;
-
 	priv->maxpayload[ALL_NODES] = min(priv->maxpayload[ALL_NODES], maxpayload);
 	priv->sspd[ALL_NODES] = min(priv->sspd[ALL_NODES], sspd);
 
@@ -316,14 +316,12 @@ static void eth1394_reset_priv (struct rtnet_device *dev, int set_mtu)
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	struct hpsb_host *host = priv->host;
 	int phy_id = NODEID_TO_NODE(host->node_id);
-	//u64 guid = *((u64*)&(host->csr.rom->bus_info_data[3]));
 	u16 maxpayload = 1 << (host->csr.max_rec + 1);
 
 	rtos_spin_lock_irqsave (&priv->lock, flags);
 	/* Clear the speed/payload/offset tables */
 	memset (priv->maxpayload, 0, sizeof (priv->maxpayload));
 	memset (priv->sspd, 0, sizeof (priv->sspd));
-	memset (priv->fifo, 0, sizeof (priv->fifo));
 
 	priv->sspd[ALL_NODES] = ETH1394_SPEED_DEF;
 	priv->maxpayload[ALL_NODES] = eth1394_speedto_maxpayload[priv->sspd[ALL_NODES]];
@@ -452,6 +450,7 @@ static void eth1394_add_host (struct hpsb_host *host)
 				       priv->broadcast_channel,
 				       HPSB_ISO_DMA_PACKET_PER_BUFFER,
 				       1, eth1394_iso, 0, "eth1394_iso", IEEE1394_PRIORITY_HIGHEST);
+	
 	
 								
 	if (priv->iso == NULL) {
@@ -1101,7 +1100,8 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 		priv->stats.rx_dropped++;
 		goto bad_proto;
 	}*/
-	DEBUG_PRINT("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
+
+	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	rtnetif_rx(skb);//finally, we deliver the packet
 
 	/* Statistics */
@@ -1110,6 +1110,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 	rt_mark_stack_mgr(dev);
 
 bad_proto:
+	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	if (rtnetif_queue_stopped(dev))
 		rtnetif_wake_queue(dev);
 	rtos_spin_unlock_irqrestore(&priv->lock, flags);
@@ -1124,6 +1125,7 @@ bad_proto:
 {
 	struct host_info *hi = hpsb_get_hostinfo(&eth1394_highlevel, host);
 
+	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	if (hi == NULL) {
 		ETH1394_PRINT_G(KERN_ERR, "Could not find net device for host %s\n",
 				host->driver->name);
@@ -1150,7 +1152,6 @@ bad_proto:
  */
 static void eth1394_iso(struct hpsb_iso *iso, void *arg)
 {
-	DEBUG_PRINT("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	
 	quadlet_t *data;
 	char *buf;
@@ -1219,7 +1220,6 @@ static void eth1394_iso(struct hpsb_iso *iso, void *arg)
 static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 					    struct rtnet_device *dev)
 {
-	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	struct eth1394_priv *priv = (struct eth1394_priv *)(dev->priv);
 	u16 phy_id = NODEID_TO_NODE(priv->host->node_id);
 
@@ -1229,7 +1229,7 @@ static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 
 	/* Believe it or not, all that need to happen is sender IP get moved
 	 * and set hw_addr_len, max_rec, sspd, fifo_hi and fifo_lo.  */
-	arp1394->hw_addr_len	= 2; //we also include the source hardware address
+	arp1394->hw_addr_len	= 2; 
 	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);
 	arp1394->max_rec	= priv->host->csr.max_rec;
 	arp1394->sspd		= priv->sspd[phy_id];
@@ -1245,8 +1245,6 @@ static inline unsigned int eth1394_encapsulate_prep(unsigned int max_payload,
 						      u16 dg_size, u16 dgl)
 { 
 	unsigned int adj_max_payload = max_payload - hdr_type_len[ETH1394_HDR_LF_UF];
-	//rtos_print("adj_max_payload=%d\n",adj_max_payload);
-	//rtos_print("dg_size=%d\n",dg_size);
 
 	/* Does it all fit in one packet? */
 	if (dg_size <= adj_max_payload) {
@@ -1361,7 +1359,6 @@ static inline void eth1394_prep_gasp_packet(struct hpsb_packet *p,
 	p->header[0] = (length << 16) | (3 << 14)
 		| ((priv->broadcast_channel) << 8)
 		| (TCODE_STREAM_DATA << 4);
-	DEBUG_PRINT("pointer to %s(%s) p->header[0]:%08x\n",__FILE__,__FUNCTION__,p->header[0]);
 	p->data_size = length;
 	p->data = ((quadlet_t*)skb->data) - 2; //we need 64bits for extra spec_id and gasp version. 
 	p->data[0] = cpu_to_be32((priv->host->node_id << 16) |
@@ -1381,7 +1378,6 @@ static inline void eth1394_free_packet(struct hpsb_packet *packet)
 {
 	if (packet->tcode != TCODE_STREAM_DATA)
 		hpsb_free_tlabel(packet);
-	packet->data = NULL;
 	hpsb_free_packet(packet);
 }
 
@@ -1397,14 +1393,16 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 {
 	struct eth1394_priv *priv = ptask->priv;
 	struct hpsb_packet *packet = NULL;
-	DEBUG_PRINT("pointer to %s(%s): tx_len is %d\n",__FILE__,__FUNCTION__,tx_len);
+	int ret;
 	
+	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	packet = eth1394_alloc_common_packet(priv->host, ptask->priority);
-	if (!packet)
-		return -1;
+	if (!packet) {
+		ret = -ENOMEM;
+		return ret;
+	}
 
 	if (ptask->tx_type == ETH1394_GASP) {
-		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 		int length = tx_len + (2 * sizeof(quadlet_t)); //for the extra gasp overhead
 
 		eth1394_prep_gasp_packet(packet, priv, ptask->skb, length);
@@ -1412,6 +1410,7 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 					       ptask->dest_node,
 					       ptask->addr, ptask->skb->data,
 					       tx_len)) {
+		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 		hpsb_free_packet(packet);
 		return -1;
 	}
@@ -1420,12 +1419,14 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 	hpsb_set_packet_complete_task(ptask->packet, eth1394_complete_cb,
 				      ptask);
 
-	if (!hpsb_send_packet(packet)) {
+	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
+	ret = hpsb_send_packet(packet);
+	if (ret != 0) {
+		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 		eth1394_free_packet(packet);
-		return -1;
 	}
 
-	return 0;
+	return ret;
 }
 
 
@@ -1461,7 +1462,6 @@ static inline void eth1394_dg_complete(struct packet_task *ptask, int fail)
 static void eth1394_complete_cb(struct hpsb_packet *packet, void *__ptask)
 {
 	struct packet_task *ptask = (struct packet_task *)__ptask;
-	//struct hpsb_packet *packet = ptask->packet;
 	int fail = 0;
 
 	if (packet->tcode != TCODE_STREAM_DATA)
@@ -1550,7 +1550,7 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 		//~ dest_node = ne->nodeid;
 	//now it is much easier
 	dest_node = *(u16*)eth->h_dest;
-	rtos_print("%s: dest_node is %x\n", __FUNCTION__, dest_node);
+	DEBUGP("%s: dest_node is %x\n", __FUNCTION__, dest_node);
 	
 	proto = eth->h_proto;
 
@@ -1559,7 +1559,8 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 		eth1394_arp_to_1394arp (skb, dev);
 
 	max_payload = priv->maxpayload[NODEID_TO_NODE(dest_node)];
-
+	DEBUGP("%s: max_payload is %d\n", __FUNCTION__, max_payload);
+	
 	/* This check should be unnecessary, but we'll keep it for safety for
 	 * a while longer. */
 	if (max_payload < 512) {
@@ -1609,10 +1610,10 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 			//~ goto fail;
 		//~ }
 
-		rtos_spin_lock_irqsave(&priv->lock, flags);
+		//~ rtos_spin_lock_irqsave(&priv->lock, flags);
 		//~ addr = priv->fifo[NODEID_TO_NODE(dest_node)];
-		addr = dest_node | ETHER1394_REGION_ADDR;
-		rtos_spin_unlock_irqrestore(&priv->lock, flags);
+		addr =  ETHER1394_REGION_ADDR;
+		//~ rtos_spin_unlock_irqrestore(&priv->lock, flags);
 
 		ptask->addr = addr;
 		ptask->dest_node = dest_node;

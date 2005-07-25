@@ -1,26 +1,33 @@
-/* stack_mgr.h
+/***
  *
- * RTnet - real-time networking subsystem
- * Copyright (C) 2002, Ulrich Marx <marx@fet.uni-hannover.de>
+ *  stack_mgr.h
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ *  RTnet - real-time networking subsystem
+ *  Copyright (C) 2002      Ulrich Marx <marx@fet.uni-hannover.de>
+ *                2003-2005 Jan Kiszka <jan.kiszka@web.de>
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
  */
+
 #ifndef __STACK_MGR_H_
 #define __STACK_MGR_H_
 
 #ifdef __KERNEL__
+
+#include <linux/list.h>
 
 #include <rtnet_internal.h>
 #include <rtdev.h>
@@ -30,16 +37,19 @@
  * network layer protocol (layer 3)
  */
 
-#define MAX_RT_PROTOCOLS        64
+#define RTPACKET_HASH_TBL_SIZE  64
+#define RTPACKET_HASH_KEY_MASK  (RTPACKET_HASH_TBL_SIZE-1)
 
 struct rtpacket_type {
-    char           *name;
-    unsigned short type;
-    short          refcount;
+    unsigned short      type;
+    short               refcount;
 
-    int            (*handler)(struct rtskb *, struct rtpacket_type *);
-    int            (*err_handler)(struct rtskb *, struct rtnet_device *,
-                                  struct rtpacket_type *);
+    int                 (*handler)(struct rtskb *, struct rtpacket_type *);
+    int                 (*err_handler)(struct rtskb *, struct rtnet_device *,
+                                       struct rtpacket_type *);
+
+    char                *name;
+    struct list_head    list_entry;
 };
 
 
@@ -56,12 +66,12 @@ extern void rtnetif_tx(struct rtnet_device *rtdev);
 
 static inline void rt_mark_stack_mgr(struct rtnet_device *rtdev)
 {
-    rtos_event_sem_signal(rtdev->stack_event);
+    rtos_event_signal(rtdev->stack_event);
 }
 
 
-extern struct rtpacket_type *rt_packets[MAX_RT_PROTOCOLS];
-extern rtos_spinlock_t      rt_packets_lock;
+extern struct list_head rt_packets[RTPACKET_HASH_TBL_SIZE];
+extern rtos_spinlock_t  rt_packets_lock;
 
 
 #endif /* __KERNEL__ */

@@ -1,8 +1,8 @@
 /*
- * eth1394.h -- Ethernet driver for Linux IEEE-1394 Subsystem
+ * eth1394.h -- Driver for Ethernet emulation over FireWire, (adapted from Linux1394)
+ * 		working under RTnet.
  *
- * Copyright (C) 2000 Bonin Franck <boninf@free.fr>
- *           (C) 2001 Ben Collins <bcollins@debian.org>
+ * Copyright (C) 2005 	Zhang Yuchen <yuchen623@gmail.com>
  *
  * Mainly based on work by Emanuel Pirker and Andreas E. Bombe
  *
@@ -27,6 +27,7 @@
 #include <ieee1394.h>
 #include <rtskb.h>
 #include <linux/netdevice.h>
+#include <rtnet_port.h>
 
 
 /* Register for incoming packets. This is 4096 bytes, which supports up to
@@ -62,7 +63,7 @@ enum eth1394_bc_states { ETHER1394_BC_CLOSED, ETHER1394_BC_OPENED,
 struct pdg_list {
 	struct list_head list;		/* partial datagram list per node */
 	unsigned int sz;		/* partial datagram list size per node	*/
-	spinlock_t lock;		/* partial datagram lock		*/
+	rtos_spinlock_t lock;		/* partial datagram lock		*/
 };
 
 /* IP1394 headers */
@@ -93,15 +94,15 @@ struct eth1394_uf_hdr {
 #define ETH1394_HDR_LF_LF	2	/* last fragment	*/
 #define ETH1394_HDR_LF_IF	3	/* interior fragment	*/
 
-#define IP1394_HW_ADDR_LEN	16	/* As per RFC		*/
+#define IP1394_HW_ADDR_LEN	2	/* In RFC, the value is 16; here use the value for modified spec		*/
 
 /* Our arp packet (ARPHRD_IEEE1394) */
 struct eth1394_arp {
 	u16 hw_type;		/* 0x0018	*/
-	u16 proto_type;		/* 0x0806	*/
-	u8 hw_addr_len;		/* 16 		*/
+	u16 proto_type;		/* 0x0080	*/
+	u8 hw_addr_len;		/* 2 		*/
 	u8 ip_addr_len;		/* 4		*/
-	u16 opcode;		/* ARP Opcode	*/
+	u16 opcode;		/* ARP Opcode: 1 for req, 2 for resp	*/
 	/* Above is exactly the same format as struct arphdr */
 
 	u16 s_uniq_id;		/* Sender's 64bit EUI			*/
@@ -215,8 +216,6 @@ struct eth1394_priv {
 	struct hpsb_host *host;		/* The card for this dev	 */
 	u16 maxpayload[NODE_SET];	/* Max payload per node		 */
 	unsigned char sspd[NODE_SET];	/* Max speed per node		 */
-	u64 fifo[ALL_NODES];		/* FIFO offset per node		 */
-	u64 eui[ALL_NODES];		/* EUI-64 per node		 */
 	rtos_spinlock_t lock;		/* Private lock			 */
 	int broadcast_channel;		/* Async stream Broadcast Channel */
 	enum eth1394_bc_states bc_state; /* broadcast channel state	 */
@@ -224,20 +223,17 @@ struct eth1394_priv {
 	struct pdg_list pdg[ALL_NODES]; /* partial RX datagram lists     */
 	int dgl[NODE_SET];              /* Outgoing datagram label per node */
 	
-	// *** RTnet ***
 	/* The addresses of a Tx/Rx-in-place packets/buffers. */
 	struct rtskb *tx_skbuff[TX_RING_SIZE];
 	struct rtskb *rx_skbuff[RX_RING_SIZE];
 	struct rtskb_queue skb_pool;
 	struct packet_task ptask_list[20]; //the list of pre-allocated ptask structure
-	// *** RTnet ***
 };
 
 
 
 struct host_info {
 	struct hpsb_host *host;
-	//******RTnet*******
 	struct rtnet_device *dev;
 };
 

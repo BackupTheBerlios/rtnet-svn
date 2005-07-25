@@ -116,8 +116,6 @@ int rt_arp_rcv(struct rtskb *skb, struct rtpacket_type *pt)
     unsigned char       *sha, *tha;
     u32                 sip, tip;
     u16                 dev_type = rtdev->type;
-    
-    rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 
     /*
      *  The hardware length of the packet should match the hardware length
@@ -171,7 +169,6 @@ int rt_arp_rcv(struct rtskb *skb, struct rtpacket_type *pt)
     arp_ptr += rtdev->addr_len;
     memcpy(&tip, arp_ptr, 4);
 
-    rtos_print("pointer to %s(%s) tip:%08x, localip: %08x\n",__FILE__,__FUNCTION__,tip, rtdev->local_ip);
     /* process only requests/replies directed to us */
     if (tip == rtdev->local_ip) {
         rt_ip_route_add_host(sip, sha, rtdev);
