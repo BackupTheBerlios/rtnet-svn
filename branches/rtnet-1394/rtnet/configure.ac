@@ -124,6 +124,17 @@ AC_ARG_WITH(rtai,
 	AC_MSG_ERROR([You must supply an argument to --with-rtai.]) ;;
     esac],
     with_rtai="/usr/src/rtai")
+    
+dnl ======================================================================
+dnl		rt-firewire sources
+dnl ======================================================================
+AC_ARG_WITH(rtfw,
+    AS_HELP_STRING([--with-rtfw=RTFW], [path to RT-FireWire source ]),
+    [case "${withval}" in
+    "" | y | ye | yes | n | no)
+	AC_MSG_ERROR([You must supply an argument to --with-rtfw if eth1394 is built in.]) ;;
+    esac],
+    with_rtnet="/usr/src/rt-firewire")
 
 
 dnl ======================================================================
@@ -323,6 +334,24 @@ esac
 
 AM_CONDITIONAL(CONFIG_FUSION,[test "$CONFIG_RTNET_RTAI_VERSION" = fusion-090])
 
+dnl ======================================================================
+dnl =========== try to find rt-firewire ==================================
+dnl ======================================================================
+unset CONFIG_RTNET_RTFW
+#
+# the presence of ieee1394.h is a good indication for rtnet
+#
+if test x"$CONFIG_RTNET_RTFW" \!= x"n"; then
+    AC_MSG_CHECKING([for RT-FireWire source])
+    IEEE1394_H="${with_rtfw}/include/ieee1394.h"
+    if test -f ${IEEE1394_H}; then
+        RTNET_RTFW_PREFIX="`echo ${with_rtfw} | sed -e s,[/]*$,,`"	# strip trailing slashes
+	AC_MSG_RESULT([${RTNET_RTFW_PREFIX}])
+    else
+	CONFIG_RTNET_RTFW=n
+	AC_MSG_RESULT([no])
+    fi
+fi
 
 dnl ======================================================================
 dnl		check linux version
@@ -408,6 +437,11 @@ else
     esac
 fi
 
+dnl ======================================================================
+dnl		import settings from RT-FireWire
+dnl ======================================================================
+
+RTFW_KMOD_CFLAGS="-I${RTNET_RTFW_PREFIX}/include"
 
 dnl ======================================================================
 dnl		architecture tests....
@@ -491,6 +525,7 @@ else
 		ARCH=\$(RTNET_TARGET_ARCH)								\
 		M=\"\`pwd\`\"										\
 		V=\$(V)											\
+		rtfw_dir=\"${RTNET_RTFW_PREFIX}\"						\
 		rtai_dir=\"${RTNET_RTAI_PREFIX}\"							\
 		top_srcdir=\"\`cd \$(top_srcdir) && pwd\`\"						\
 		top_builddir=\"\`cd \$(top_builddir) && pwd\`\"						\
@@ -1094,9 +1129,11 @@ AH_BOTTOM([#endif /* __IN_RTNET__ */])
 
 RTAI_KMOD_CFLAGS="-D__IN_RTNET__ $RTAI_KMOD_CFLAGS"
 RTAI_USER_CFLAGS="-D__IN_RTNET__ $RTAI_USER_CFLAGS"
+RTFW_KMOD_CFLAGS="-D__IN_RTNET__ $RTFW_KMOD_CFLAGS"
 AC_SUBST(RTAI_KMOD_CFLAGS)
 AC_SUBST(RTAI_USER_CFLAGS)
 AC_SUBST(RTAI_LIBRARIES)
+AC_SUBST(RTFW_KMOD_CFLAGS)
 
 
 dnl ======================================================================
@@ -1134,7 +1171,7 @@ if test x$CONFIG_KBUILD = xy; then
 	drivers/smc91111 \
 	drivers/tulip \
 	drivers/via-rhine \
-        drivers/experimental/3c59x \]
+        drivers/experimental/3c59x \
 	drivers/experimental/eth1394 \
 	\
 	rtai_rtdm \
