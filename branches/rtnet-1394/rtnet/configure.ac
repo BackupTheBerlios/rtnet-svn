@@ -829,6 +829,16 @@ AC_ARG_ENABLE(smc91111,
 AC_MSG_RESULT([${CONFIG_RTNET_SMC91111}])
 AM_CONDITIONAL(CONFIG_RTNET_SMC91111,[test "$CONFIG_RTNET_SMC91111" = "yes"])
 
+AC_MSG_CHECKING([whether to build Eth1394 driver])
+AC_ARG_ENABLE(eth1394,
+	AS_HELP_STRING([--enable-eth1394], [build Eth1394 driver]),
+	[case "$enableval" in
+	y | yes) CONFIG_RTNET_ETH1394=yes ;;
+	*) CONFIG_RTNET_ETH1394=no ;;
+	esac],
+	[CONFIG_RTNET_	ETH1394=no])
+AC_MSG_RESULT([${CONFIG_RTNET_ETH1394}])
+AM_CONDITIONAL(CONFIG_RTNET_ETH1394,[test "$CONFIG_RTNET_ETH1394" = "yes"])
 
 AC_MSG_CHECKING([whether to build loopback driver])
 AC_ARG_ENABLE(loopback,
@@ -1124,7 +1134,8 @@ if test x$CONFIG_KBUILD = xy; then
 	drivers/smc91111 \
 	drivers/tulip \
 	drivers/via-rhine \
-        drivers/experimental/3c59x \
+        drivers/experimental/3c59x \]
+	drivers/experimental/eth1394 \
 	\
 	rtai_rtdm \
 	\
@@ -1189,6 +1200,7 @@ AC_CONFIG_FILES([ \
     drivers/via-rhine/GNUmakefile \
     drivers/experimental/GNUmakefile \
     drivers/experimental/3c59x/GNUmakefile \
+    drivers/experimental/eth1394/GNUmakefile \
     \
     rtai_rtdm/GNUmakefile \
     \
