@@ -1227,8 +1227,6 @@ static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 	unsigned char *arp_ptr = (unsigned char *)(arp + 1);
 	struct eth1394_arp *arp1394 = (struct eth1394_arp *)skb->data;
 
-	/* Believe it or not, all that need to happen is sender IP get moved
-	 * and set hw_addr_len, max_rec, sspd, fifo_hi and fifo_lo.  */
 	arp1394->hw_addr_len	= 2; 
 	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);
 	arp1394->max_rec	= priv->host->csr.max_rec;
@@ -1327,6 +1325,7 @@ static inline int eth1394_prep_write_packet(struct hpsb_packet *p,
 	p->data = NULL;
 
 	p->tcode = TCODE_WRITEB;
+
 	p->header[1] = (host->node_id << 16) | (addr >> 32);
 	p->header[2] = addr & 0xffffffff;
 
@@ -1467,7 +1466,8 @@ static void eth1394_complete_cb(struct hpsb_packet *packet, void *__ptask)
 	if (packet->tcode != TCODE_STREAM_DATA)
 		fail = hpsb_packet_success(packet);
 	
-	eth1394_free_packet(packet);
+	//we have no rights to free packet, since it belongs to RT-FireWire kernel. 
+	//~ eth1394_free_packet(packet);
 
 	ptask->outstanding_pkts--;
 	if (ptask->outstanding_pkts > 0 && !fail)
@@ -1492,6 +1492,8 @@ static void eth1394_complete_cb(struct hpsb_packet *packet, void *__ptask)
  */
 static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 {
+	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
+	
 	struct eth1394hdr *eth;
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	int proto;
