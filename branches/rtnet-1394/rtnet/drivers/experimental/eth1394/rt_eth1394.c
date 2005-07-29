@@ -52,7 +52,7 @@
 #define ETH1394_PRINT(level, dev_name, fmt, args...) \
 	rtos_print(level "%s: %s: " fmt, driver_name, dev_name, ## args)
 
-#define ETH1394_DEBUG 1
+//~ #define ETH1394_DEBUG 1
 
 #ifdef ETH1394_DEBUG
 #define DEBUGP(fmt, args...) \
@@ -684,12 +684,6 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	unsigned short ret = 0;
 
-	int i;
-	rtos_print("SKB over FireWire:");
-	for (i = 0; i < skb->len; i++)
-		rtos_print(" %02x", skb->data[i]);
-	rtos_print("\n");
-	
 	/* If this is an ARP packet, convert it. First, we want to make
 	 * use of some of the fields, since they tell us a little bit
 	 * about the sending machine.  */
@@ -749,10 +743,6 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 			      &destid, &srcid, skb->len) >= 0)
 		ret = eth1394_type_trans(skb, dev);
 
-	rtos_print("SKB over FireWire:");
-	for (i = 0; i < skb->len; i++)
-		rtos_print(" %02x", skb->data[i]);
-	rtos_print("\n");
 	return ret;
 }
 
@@ -945,7 +935,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 	hdr_len = hdr_type_len[hdr->common.lf];
 	
 	if (hdr->common.lf == ETH1394_HDR_LF_UF) {
-		rtos_print("a single datagram has been received\n");
+		DEBUGP("a single datagram has been received\n");
 		/* An unfragmented datagram has been received by the ieee1394
 		 * bus. Build an skbuff around it so we can pass it to the
 		 * high level network layer. */
@@ -958,7 +948,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 		
 		skb = dev_alloc_rtskb(len + dev->hard_header_len + 15,&priv->skb_pool);
 		if (!skb) {
-			HPSB_PRINT (KERN_ERR, "eth1394 rx: low on mem\n");
+			ETH1394_PRINT_G(KERN_ERR, "eth1394 rx: low on mem\n");
 			priv->stats.rx_dropped++;
 			return -1;
 		}
@@ -970,7 +960,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 		memcpy(rtskb_put(skb, len - hdr_len), buf + hdr_len, len - hdr_len);
 		ether_type = hdr->uf.ether_type;
 	} else {
-		rtos_print("a datagram fragment has been received\n");
+		DEBUGP("a datagram fragment has been received\n");
 		/* A datagram fragment has been received, now the fun begins. */
 		struct list_head *pdgl, *lh;
 		struct partial_datagram *pd;
@@ -1100,8 +1090,6 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 		priv->stats.rx_dropped++;
 		goto bad_proto;
 	}*/
-
-	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	rtnetif_rx(skb);//finally, we deliver the packet
 
 	/* Statistics */
@@ -1110,7 +1098,6 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 	rt_mark_stack_mgr(dev);
 
 bad_proto:
-	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	if (rtnetif_queue_stopped(dev))
 		rtnetif_wake_queue(dev);
 	rtos_spin_unlock_irqrestore(&priv->lock, flags);
@@ -1125,7 +1112,6 @@ bad_proto:
 {
 	struct host_info *hi = hpsb_get_hostinfo(&eth1394_highlevel, host);
 
-	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	if (hi == NULL) {
 		ETH1394_PRINT_G(KERN_ERR, "Could not find net device for host %s\n",
 				host->driver->name);
@@ -1322,7 +1308,6 @@ static inline int eth1394_prep_write_packet(struct hpsb_packet *p,
 					      void * data, int tx_len)
 {
 	p->node_id = node;
-	p->data = NULL;
 
 	p->tcode = TCODE_WRITEB;
 
@@ -1394,7 +1379,6 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 	struct hpsb_packet *packet = NULL;
 	int ret;
 	
-	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	packet = eth1394_alloc_common_packet(priv->host, ptask->priority);
 	if (!packet) {
 		ret = -ENOMEM;
@@ -1409,7 +1393,6 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 					       ptask->dest_node,
 					       ptask->addr, ptask->skb->data,
 					       tx_len)) {
-		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 		hpsb_free_packet(packet);
 		return -1;
 	}
@@ -1418,10 +1401,8 @@ static int eth1394_send_packet(struct packet_task *ptask, unsigned int tx_len)
 	hpsb_set_packet_complete_task(ptask->packet, eth1394_complete_cb,
 				      ptask);
 
-	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	ret = hpsb_send_packet(packet);
 	if (ret != 0) {
-		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 		eth1394_free_packet(packet);
 	}
 
@@ -1492,7 +1473,6 @@ static void eth1394_complete_cb(struct hpsb_packet *packet, void *__ptask)
  */
 static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 {
-	rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
 	
 	struct eth1394hdr *eth;
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
