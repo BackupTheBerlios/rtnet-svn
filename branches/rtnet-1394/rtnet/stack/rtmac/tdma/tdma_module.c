@@ -193,7 +193,8 @@ int tdma_attach(struct rtnet_device *rtdev, void *priv)
     if (ret < 0)
         goto err_out1;
 
-    ret = rtos_task_init(&tdma->worker_task, tdma_worker, tdma, DEF_WORKER_PRIO);
+    //ret = rtos_task_init(&tdma->worker_task, tdma_worker, tdma, DEF_WORKER_PRIO);
+    ret = rtos_task_init(&tdma->worker_task, tdma_worker, tdma, 75);
     if (ret != 0)
         goto err_out2;
 

@@ -199,6 +199,7 @@ int tdma_nrt_packet_tx(struct rtskb *rtskb)
 }
 
 
+#define ETH1394_ALEN (2)
 
 int tdma_packet_rx(struct rtskb *rtskb)
 {
@@ -217,7 +218,6 @@ int tdma_packet_rx(struct rtskb *rtskb)
     struct tdma_job         *job;
     unsigned long           flags;
 #endif
-
 
     tdma = (struct tdma_priv *)rtskb->rtdev->mac_priv->disc_priv;
 
@@ -243,9 +243,9 @@ int tdma_packet_rx(struct rtskb *rtskb)
             tdma->clock_offset        = clock_offset;
             rtos_spin_unlock_irqrestore(&tdma->lock,flags);
 
-            /* note: Ethernet-specific! */
-            memcpy(tdma->master_hw_addr, rtskb->mac.ethernet->h_source,
-                   ETH_ALEN);
+            /* note: Eth1394-specific! */
+            memcpy(tdma->master_hw_addr, rtskb->mac.eth1394->h_source,
+                   ETH1394_ALEN);
 
             set_bit(TDMA_FLAG_RECEIVED_SYNC, &tdma->flags);
 
@@ -278,8 +278,8 @@ int tdma_packet_rx(struct rtskb *rtskb)
             rpl_cal_frm = (struct tdma_frm_rpl_cal *)
                 rtskb_put(reply_rtskb, sizeof(struct tdma_frm_rpl_cal));
 
-            /* note: Ethernet-specific! */
-            if (unlikely(rtmac_add_header(rtdev, rtskb->mac.ethernet->h_source,
+            /* note: Eth1394-specific! */
+            if (unlikely(rtmac_add_header(rtdev, rtskb->mac.eth1394->h_source,
                                           reply_rtskb, RTMAC_TYPE_TDMA,
                                           0) < 0)) {
                 kfree_rtskb(reply_rtskb);

@@ -52,7 +52,7 @@
 #define ETH1394_PRINT(level, dev_name, fmt, args...) \
 	rtos_print(level "%s: %s: " fmt, driver_name, dev_name, ## args)
 
-//~ #define ETH1394_DEBUG 1
+//#define ETH1394_DEBUG 1
 
 #ifdef ETH1394_DEBUG
 #define DEBUGP(fmt, args...) \
@@ -1138,7 +1138,6 @@ bad_proto:
  */
 static void eth1394_iso(struct hpsb_iso *iso, void *arg)
 {
-	
 	quadlet_t *data;
 	char *buf;
 	struct rtnet_device *dev;
@@ -1485,7 +1484,7 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	unsigned int max_payload;
 	u16 dg_size;
 	u16 dgl;
-	
+
 	//we try to find the available ptask struct, if failed, we can not send packet
 	struct packet_task *ptask = NULL;
 	int i;
@@ -1532,7 +1531,8 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 		//~ dest_node = ne->nodeid;
 	//now it is much easier
 	dest_node = *(u16*)eth->h_dest;
-	DEBUGP("%s: dest_node is %x\n", __FUNCTION__, dest_node);
+	if(dest_node != 0xffff)
+	rtos_print("%s: dest_node is %x\n", __FUNCTION__, dest_node);
 	
 	proto = eth->h_proto;
 

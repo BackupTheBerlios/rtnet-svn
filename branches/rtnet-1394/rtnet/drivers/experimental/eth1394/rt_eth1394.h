@@ -238,18 +238,18 @@ struct host_info {
 };
 
 
-/* Define a fake hardware header format for the networking core.  Note that
- * header size cannot exceed 16 bytes as that is the size of the header cache.
- * {Also, we do not need the source address in the header so we omit it and
- * keep the header to under 16 bytes} added now, since some protocol needs 
- * this header*/
-#define ETH1394_ALEN (2)
-#define ETH1394_HLEN (6)
+//~ /* Define a fake hardware header format for the networking core.  Note that
+ //~ * header size cannot exceed 16 bytes as that is the size of the header cache.
+ //~ * {Also, we do not need the source address in the header so we omit it and
+ //~ * keep the header to under 16 bytes} added now, since some protocol needs 
+ //~ * this header*/
+//~ #define ETH1394_ALEN (2)
+//~ #define ETH1394_HLEN (6)
 
-struct eth1394hdr {
-	unsigned char	h_dest[ETH1394_ALEN];	/* destination eth1394 addr	*/
-	unsigned char	h_source[ETH1394_ALEN];	/*source eth1394 addr */
-	unsigned short	h_proto;		/* packet type ID field	*/
-}  __attribute__((packed));
+//~ struct eth1394hdr {
+	//~ unsigned char	h_dest[ETH1394_ALEN];	/* destination eth1394 addr	*/
+	//~ unsigned char	h_source[ETH1394_ALEN];	/*source eth1394 addr */
+	//~ unsigned short	h_proto;		/* packet type ID field	*/
+//~ }  __attribute__((packed));
 
 #endif /* __ETH1394_H */
