@@ -141,7 +141,21 @@ a case, the RTSKB_CAP_RTMAC_STAMP bit is set in cap_flags to indicate that the
 cap_rtmac_stamp field now contains valid data.
 
  ***/
+ 
+/* Define a fake hardware header format for the networking core.  Note that
+ * header size cannot exceed 16 bytes as that is the size of the header cache.
+ * {Also, we do not need the source address in the header so we omit it and
+ * keep the header to under 16 bytes} added now, since some protocol needs 
+ * this header*/
+ 
+#define ETH1394_ALEN (2)
+#define ETH1394_HLEN (6)
 
+struct eth1394hdr {
+	unsigned char	h_dest[ETH1394_ALEN];	/* destination eth1394 addr	*/
+	unsigned char	h_source[ETH1394_ALEN];	/*source eth1394 addr */
+	unsigned short	h_proto;		/* packet type ID field	*/
+}  __attribute__((packed));
 
 #define RTSKB_CAP_SHARED        1   /* rtskb shared between stack and RTcap */
 #define RTSKB_CAP_RTMAC_STAMP   2   /* cap_rtmac_stamp is valid             */
@@ -195,6 +209,7 @@ struct rtskb {
     union
     {
         struct ethhdr   *ethernet;
+	struct eth1394hdr *eth1394;
         unsigned char   *raw;
     } mac;
 
