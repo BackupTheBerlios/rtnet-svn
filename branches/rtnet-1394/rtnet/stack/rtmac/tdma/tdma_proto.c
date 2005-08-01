@@ -132,7 +132,6 @@ int tdma_rt_packet_tx(struct rtskb *rtskb, struct rtnet_device *rtdev)
     struct tdma_slot    *slot;
     int                 ret = 0;
 
-
     tdma = (struct tdma_priv *)rtdev->mac_priv->disc_priv;
 
     rtcap_mark_rtmac_enqueue(rtskb);
@@ -235,7 +234,7 @@ int tdma_packet_rx(struct rtskb *rtskb)
                     tdma->master_packet_delay_ns;
             clock_offset -= rtskb->time_stamp;
 
-            cycle_start = SYNC_FRM(head)->sched_xmit_stamp - clock_offset;
+            cycle_start = be64_to_cpu(SYNC_FRM(head)->sched_xmit_stamp) - clock_offset;
 
             rtos_spin_lock_irqsave(&tdma->lock, flags);
             tdma->current_cycle       = ntohl(SYNC_FRM(head)->cycle_no);
@@ -355,9 +354,7 @@ int tdma_packet_rx(struct rtskb *rtskb)
             if (req_cal_job->cal_rounds > 0) {
                 tdma->job_list_revision++;
                 list_add(&req_cal_job->head.entry, &tdma->first_job->entry);
-
                 rtos_spin_unlock_irqrestore(&tdma->lock, flags);
-
             } else {
                 tdma->calibration_call = NULL;
 

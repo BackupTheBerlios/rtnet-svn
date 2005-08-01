@@ -926,6 +926,8 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 	union eth1394_hdr *hdr = (union eth1394_hdr *)buf;
 	u16 ether_type = 0;  /* initialized to clear warning */
 	int hdr_len;
+	
+	nanosecs_t time_stamp = rtos_get_time();
 
 	priv = (struct eth1394_priv *)dev->priv;
 
@@ -1085,6 +1087,7 @@ static int eth1394_data_handler(struct rtnet_device *dev, int srcid, int destid,
 		goto bad_proto;
 	}
 
+	skb->time_stamp = time_stamp;
 	/*if (netif_rx(skb) == NET_RX_DROP) {
 		priv->stats.rx_errors++;
 		priv->stats.rx_dropped++;
@@ -1497,7 +1500,6 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	if(ptask == NULL)
 		return -EBUSY;
 	
-	
 	rtos_spin_lock_irqsave (&priv->lock, flags);
 	if (priv->bc_state == ETHER1394_BC_CLOSED) {
 		ETH1394_PRINT(KERN_ERR, dev->name,
@@ -1519,7 +1521,6 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	/* Get rid of the fake eth1394 header, but save a pointer */
 	eth = (struct eth1394hdr*)skb->data;
 	rtskb_pull(skb, ETH1394_HLEN);
-	
 	//dont get rid of the fake eth1394 header, since we need it on the receiving side
 	//eth = (struct eth1394hdr*)skb->data;
 
@@ -1610,6 +1611,9 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	/* Add the encapsulation header to the fragment */
 	tx_len = eth1394_encapsulate(skb, max_payload, &ptask->hdr);
 	//dev->trans_start = jiffies;
+	if(skb->xmit_stamp)
+		*skb->xmit_stamp = cpu_to_be64(rtos_get_time() + *skb->xmit_stamp);
+	
 	if (eth1394_send_packet(ptask, tx_len))
 		goto fail;
 	

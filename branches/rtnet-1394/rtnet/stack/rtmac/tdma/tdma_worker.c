@@ -47,7 +47,7 @@ void tdma_worker(void *arg)
     do {
         if (job->id == WAIT_ON_SYNC)
             rtos_event_wait(&tdma->sync_event, 0);
-        else if (job->id >= 0) {
+	else if (job->id >= 0) {
             if (((SLOT_JOB(job)->period == 1) ||
                  (tdma->current_cycle % SLOT_JOB(job)->period ==
                         SLOT_JOB(job)->phasing)) &&
@@ -94,9 +94,7 @@ void tdma_worker(void *arg)
 #endif /* CONFIG_RTNET_TDMA_MASTER */
 
         } else if (job->id == XMIT_REQ_CAL) {
-		rtos_print("pointer to %s(%s)%d\n",__FILE__,__FUNCTION__,__LINE__);
             struct rt_proc_call  *call;
-
             if ((REQUEST_CAL_JOB(job)->period == 1) ||
                 (tdma->current_cycle % REQUEST_CAL_JOB(job)->period ==
                     REQUEST_CAL_JOB(job)->phasing)) {
@@ -112,11 +110,10 @@ void tdma_worker(void *arg)
 
                 rtos_spin_unlock_irqrestore(&tdma->lock, flags);
 
-                ret = rtos_task_sleep_until(tdma->current_cycle_start +
-                                            REQUEST_CAL_JOB(job)->offset);
-		rtos_print("pointer to %s(%s)%d, ret=%d\n",__FILE__,__FUNCTION__,__LINE__,ret);
-                if (ret == 0)
-                    ret = tdma_xmit_request_cal_frame(tdma,
+                //~ ret = rtos_task_sleep_until(tdma->current_cycle_start +
+                                            //~ REQUEST_CAL_JOB(job)->offset);
+                //~ if (ret == 0)
+		ret = tdma_xmit_request_cal_frame(tdma,
                         tdma->current_cycle + REQUEST_CAL_JOB(job)->period,
                         REQUEST_CAL_JOB(job)->offset_ns);
 
