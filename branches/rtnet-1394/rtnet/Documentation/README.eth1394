@@ -1,0 +1,24 @@
+Readme for using RTnet over FireWire (ETH1394)
+====================================
+To use RTnet over FireWire, one needs another package, i.e. RT-FireWire, which can be checked out via "svn checkout svn://svn.berlios.de/rtfirewire/trunk". RT-FireWire package 
+is developed by RT-FireWire project team, see the project homepage for more interesting information (http://rtfirewire.berlios.de).
+
+One needs to compile and test the RT-FireWire package first, because RTnet will be layered on RT-FireWire. RT-FireWire only compiles with fusion. At the time of writing, it is the 
+CVS version of fusion. Use --with-rtai=XXX to specify the installation location of fusion in your system. 
+
+To compile RTnet with RT-FireWire, one needs to do 2 things in configuration:
+1. add --with-rtfw=XXX to specify the source location of RT-FireWire
+2. add --enable-eth1394 to enable the compiling of eth1394, which is located in drivers/experimental
+Of course, don't forget --with-rtai=XXX for RTnet. 
+
+RT-FireWire comes with some basic testing tool, one of which is similiar to "rtping" on Ethernet. See the Readme of RT-FireWire for how to play around with basic FireWire testing. 
+
+Currently, Eth1394 appears exactly the same as normal Ethernet device. So from the application point of view, no medium difference can be seen, which means application on Ethernet 
+can be directly moved to FireWire without any porting effort. 
+
+So...play around with your new medium i.e. FireWire, with exactly the same tool on Ethernet-:). 
+
+Good Luck!
+
+2005-8-2 Zhang Yuchen <yuchen623-at-gmail.com>
+
