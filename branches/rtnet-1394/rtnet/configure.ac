@@ -874,6 +874,9 @@ AC_ARG_ENABLE(eth1394,
 	[CONFIG_RTNET_	ETH1394=no])
 AC_MSG_RESULT([${CONFIG_RTNET_ETH1394}])
 AM_CONDITIONAL(CONFIG_RTNET_ETH1394,[test "$CONFIG_RTNET_ETH1394" = "yes"])
+if test "$CONFIG_RTNET_ETH1394" = "yes"; then
+	AC_DEFINE(CONFIG_RTNET_ETH1394, 1,[we build driver for eth1394])
+fi
 
 AC_MSG_CHECKING([whether to build loopback driver])
 AC_ARG_ENABLE(loopback,
