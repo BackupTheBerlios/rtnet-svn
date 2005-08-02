@@ -30,6 +30,9 @@
 /* Compiler */
 #undef CONFIG_RTNET_COMPILER
 
+/* we build driver for eth1394 */
+#undef CONFIG_RTNET_ETH1394
+
 /* Host system alias */
 #undef CONFIG_RTNET_HOST_STRING
 
@@ -86,26 +89,11 @@
 /* Define to 1 if you have the <netinet/in.h> header file. */
 #undef HAVE_NETINET_IN_H
 
-/* Define to 1 if you have the <rtai_fifos.h> header file. */
-#undef HAVE_RTAI_FIFOS_H
-
 /* Define to 1 if you have the <rtai_malloc.h> header file. */
 #undef HAVE_RTAI_MALLOC_H
 
-/* Define to 1 if you have the <rtai/mutex.h> header file. */
-#undef HAVE_RTAI_MUTEX_H
-
-/* Define to 1 if you have the <rtai/pipe.h> header file. */
-#undef HAVE_RTAI_PIPE_H
-
 /* Define to 1 if you have the <rtai_sem.h> header file. */
 #undef HAVE_RTAI_SEM_H
-
-/* Define to 1 if you have the <rtdm/rtdm_driver.h> header file. */
-#undef HAVE_RTDM_RTDM_DRIVER_H
-
-/* Define to 1 if you have the <rtdm/rtdm.h> header file. */
-#undef HAVE_RTDM_RTDM_H
 
 /* Define to 1 if you have the `socket' function. */
 #undef HAVE_SOCKET

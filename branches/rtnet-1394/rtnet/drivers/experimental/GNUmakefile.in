@@ -37,6 +37,7 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 host_triplet = @host@
 @CONFIG_RTNET_3C59X_TRUE@am__append_1 = 3c59x
+@CONFIG_RTNET_ETH1394_TRUE@am__append_2 = eth1394
 ACLOCAL = @ACLOCAL@
 AMDEP_FALSE = @AMDEP_FALSE@
 AMDEP_TRUE = @AMDEP_TRUE@
@@ -200,7 +201,7 @@ sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
-OPTDIRS = $(am__append_1)
+OPTDIRS = $(am__append_1) $(am__append_2)
 
 SUBDIRS = $(OPTDIRS)
 subdir = drivers/experimental
@@ -216,7 +217,7 @@ RECURSIVE_TARGETS = info-recursive dvi-recursive pdf-recursive \
 	installdirs-recursive install-recursive uninstall-recursive \
 	check-recursive installcheck-recursive
 DIST_COMMON = $(srcdir)/GNUmakefile.in GNUmakefile.am
-DIST_SUBDIRS = 3c59x
+DIST_SUBDIRS = 3c59x eth1394
 all: all-recursive
 
 .SUFFIXES:

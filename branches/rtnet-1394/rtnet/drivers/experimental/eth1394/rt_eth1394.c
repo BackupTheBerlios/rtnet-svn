@@ -206,9 +206,7 @@ static int eth1394_init_bc(struct rtnet_device *dev)
 			priv->iso = hpsb_iso_recv_init(priv->host, 16 * 4096,
 						       16, priv->broadcast_channel, HPSB_ISO_DMA_PACKET_PER_BUFFER,
 						       1, eth1394_iso, 0, "eth1394_iso", IEEE1394_PRIORITY_HIGHEST);
-			
-			DEBUG_PRINT("pointer to %s(%s) current priv->iso->channel: %d\n",__FILE__,__FUNCTION__,
-								priv->iso->channel);
+
 			if (priv->iso == NULL) {
 				ETH1394_PRINT(KERN_ERR, dev->name,
 					      "failed to change broadcast "
@@ -397,8 +395,8 @@ static void eth1394_add_host (struct hpsb_host *host)
 	dev->stop = eth1394_stop;
 	dev->hard_header = eth1394_header;
 	dev->flags		= IFF_BROADCAST | IFF_MULTICAST;
-	dev->addr_len		= ETH1394_ALEN;
-	dev->hard_header_len 	= ETH1394_HLEN;
+	dev->addr_len		= ETH_ALEN;
+	dev->hard_header_len 	= ETH_HLEN;
 	dev->type		= ARPHRD_IEEE1394;
 	
 	//rtdev->do_ioctl = NULL;
@@ -460,9 +458,6 @@ static void eth1394_add_host (struct hpsb_host *host)
 		priv->bc_state = ETHER1394_BC_ERROR;
 		goto unregister_dev;
 	} else {
-		DEBUG_PRINT("pointer to %s(%s) current priv->iso->channel: %d\n",__FILE__,__FUNCTION__,
-								priv->iso->channel);
-		
 		if (hpsb_iso_recv_start(priv->iso, -1, (1 << 3), -1) < 0){
 			priv->bc_state = ETHER1394_BC_STOPPED;
 			goto unregister_dev;
@@ -524,6 +519,7 @@ static void eth1394_host_reset (struct hpsb_host *host)
 	rtnetif_wake_queue (dev);
 }
 
+
 /******************************************
  * HW Header net device functions
  ******************************************/
@@ -537,14 +533,15 @@ static int eth1394_header(struct rtskb *skb, struct rtnet_device *dev,
 			    unsigned short type, void *daddr, void *saddr,
 			    unsigned len)
 {
-	struct eth1394hdr *eth = (struct eth1394hdr *)rtskb_push(skb, ETH1394_HLEN);
+	struct ethhdr *eth = (struct ethhdr *)rtskb_push(skb,ETH_HLEN);
+	memset(eth, 0, sizeof(*eth));
 
 	eth->h_proto = htons(type);
 
 	if (saddr)
-		memcpy(eth->h_source, saddr, dev->addr_len);
+		memcpy(eth->h_source, saddr, sizeof(nodeid_t));
 	else
-		memcpy(eth->h_source, dev->dev_addr, dev->addr_len);
+		memcpy(eth->h_source, dev->dev_addr, sizeof(nodeid_t));
 	
 	if (dev->flags & (IFF_LOOPBACK|IFF_NOARP)) 
 	{
@@ -554,7 +551,7 @@ static int eth1394_header(struct rtskb *skb, struct rtnet_device *dev,
 	
 	if (daddr)
 	{
-		memcpy(eth->h_dest,daddr,dev->addr_len);
+		memcpy(eth->h_dest,daddr, sizeof(nodeid_t));
 		return dev->hard_header_len;
 	}
 
@@ -572,7 +569,7 @@ static int eth1394_header(struct rtskb *skb, struct rtnet_device *dev,
  */
 static int eth1394_rebuild_header(struct rtskb *skb)
 {
-	struct eth1394hdr *eth = (struct eth1394hdr *)skb->data;
+	struct ethhdr *eth = (struct ethhdr *)skb->data;
 	struct rtnet_device *dev = skb->rtdev;
 
 	switch (eth->h_proto)
@@ -594,15 +591,15 @@ static int eth1394_rebuild_header(struct rtskb *skb)
 static int eth1394_header_parse(struct rtskb *skb, unsigned char *haddr)
 {
 	struct rtnet_device *dev = skb->rtdev;
-	memcpy(haddr, dev->dev_addr, ETH1394_ALEN);
-	return ETH1394_ALEN;
+	memcpy(haddr, dev->dev_addr, ETH_ALEN);
+	return ETH_ALEN;
 }
 
 
 static int eth1394_header_cache(struct neighbour *neigh, struct hh_cache *hh)
 {
 	unsigned short type = hh->hh_type;
-	struct eth1394hdr *eth = (struct eth1394hdr*)(((u8*)hh->hh_data) + 6);
+	struct ethhdr *eth = (struct ethhdr*)(((u8*)hh->hh_data) + 6);
 	struct rtnet_device *dev = neigh->dev;
 
 	if (type == __constant_htons(ETH_P_802_3)) {
@@ -612,7 +609,7 @@ static int eth1394_header_cache(struct neighbour *neigh, struct hh_cache *hh)
 	eth->h_proto = type;
 	memcpy(eth->h_dest, neigh->ha, dev->addr_len);
 	
-	hh->hh_len = ETH1394_HLEN;
+	hh->hh_len = ETH_HLEN;
 	return 0;
 }
 
@@ -644,12 +641,12 @@ static int eth1394_mac_addr(struct rtnet_device *dev, void *p)
 static inline u16 eth1394_type_trans(struct rtskb *skb,
 				       struct rtnet_device *dev)
 {
-	struct eth1394hdr *eth;
+	struct ethhdr *eth;
 	unsigned char *rawp;
 
 	skb->mac.raw = skb->data;
-	rtskb_pull (skb, ETH1394_HLEN);
-	eth = (struct eth1394hdr*)skb->mac.raw;
+	rtskb_pull (skb, ETH_HLEN);
+	eth = (struct ethhdr*)skb->mac.raw;
 
 	if (*eth->h_dest & 1) {
 		if (memcmp(eth->h_dest, dev->broadcast, dev->addr_len)==0)
@@ -725,16 +722,16 @@ static inline u16 eth1394_parse_encap(struct rtskb *skb,
 		 * eth1394_register_limits() before munging the data for the
 		 * higher level IP stack. */
 
-		arp->ar_hln = ETH1394_ALEN;
+		arp->ar_hln = ETH_ALEN;
 		arp_ptr += arp->ar_hln;		/* skip over sender unique id */
 		*(u32*)arp_ptr = arp1394->sip;	/* move sender IP addr */
 		arp_ptr += arp->ar_pln;		/* skip over sender IP addr */
 
 		if (arp->ar_op == 1)
 			/* just set ARP req target unique ID to 0 */
-			memset(arp_ptr, 0, ETH1394_ALEN);
+			memset(arp_ptr, 0, ETH_ALEN);
 		else
-			memcpy(arp_ptr, dev->dev_addr, ETH1394_ALEN);
+			memcpy(arp_ptr, dev->dev_addr, ETH_ALEN);
 	}
 
 	/* Now add the ethernet header. */
@@ -1215,8 +1212,8 @@ static inline void eth1394_arp_to_1394arp(struct rtskb *skb,
 	unsigned char *arp_ptr = (unsigned char *)(arp + 1);
 	struct eth1394_arp *arp1394 = (struct eth1394_arp *)skb->data;
 
-	arp1394->hw_addr_len	= 2; 
-	arp1394->sip		= *(u32*)(arp_ptr + ETH1394_ALEN);
+	arp1394->hw_addr_len	= 6; 
+	arp1394->sip		= *(u32*)(arp_ptr + ETH_ALEN);
 	arp1394->max_rec	= priv->host->csr.max_rec;
 	arp1394->sspd		= priv->sspd[phy_id];
 
@@ -1476,7 +1473,7 @@ static void eth1394_complete_cb(struct hpsb_packet *packet, void *__ptask)
 static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 {
 	
-	struct eth1394hdr *eth;
+	struct ethhdr *eth;
 	struct eth1394_priv *priv = (struct eth1394_priv *)dev->priv;
 	int proto;
 	unsigned long flags;
@@ -1519,10 +1516,10 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	//}
 
 	/* Get rid of the fake eth1394 header, but save a pointer */
-	eth = (struct eth1394hdr*)skb->data;
-	rtskb_pull(skb, ETH1394_HLEN);
+	eth = (struct ethhdr*)skb->data;
+	rtskb_pull(skb, ETH_HLEN);
 	//dont get rid of the fake eth1394 header, since we need it on the receiving side
-	//eth = (struct eth1394hdr*)skb->data;
+	//eth = (struct ethhdr*)skb->data;
 
 	//~ //find the node id via our fake MAC address
 	//~ ne = hpsb_guid_get_entry(be64_to_cpu(*(u64*)eth->h_dest));
@@ -1533,7 +1530,7 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	//now it is much easier
 	dest_node = *(u16*)eth->h_dest;
 	if(dest_node != 0xffff)
-	rtos_print("%s: dest_node is %x\n", __FUNCTION__, dest_node);
+	DEBUGP("%s: dest_node is %x\n", __FUNCTION__, dest_node);
 	
 	proto = eth->h_proto;
 
@@ -1547,15 +1544,14 @@ static int eth1394_tx (struct rtskb *skb, struct rtnet_device *dev)
 	/* This check should be unnecessary, but we'll keep it for safety for
 	 * a while longer. */
 	if (max_payload < 512) {
-		ETH1394_PRINT(KERN_WARNING, dev->name,
-			      "max_payload too small: %d   (setting to 512)\n",
+		DEBUGP("max_payload too small: %d   (setting to 512)\n",
 			      max_payload);
 		max_payload = 512;
 	}
 
 	/* Set the transmission type for the packet.  ARP packets and IP
 	 * broadcast packets are sent via GASP. */
-	if (memcmp(eth->h_dest, dev->broadcast, ETH1394_ALEN) == 0 ||
+	if (memcmp(eth->h_dest, dev->broadcast, sizeof(nodeid_t)) == 0 ||
 	    proto == __constant_htons(ETH_P_ARP) ||
 	    (proto == __constant_htons(ETH_P_IP) &&
 	     IN_MULTICAST(__constant_ntohl(skb->nh.iph->daddr)))) {

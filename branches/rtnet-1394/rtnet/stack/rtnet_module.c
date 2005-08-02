@@ -227,15 +227,18 @@ int __init rtnet_init(void)
 
     rtnet_chrdev_init();
 
-    //~ if ((err = rtpc_init()) != 0)
-        //~ goto err_out7;
-
+#ifndef CONFIG_RTNET_ETH1394
+    if ((err = rtpc_init()) != 0)
+        goto err_out7;
+#endif
+    
     return 0;
 
-
-//~ err_out7:
-    //~ rtnet_chrdev_release();
-    //~ rt_packet_proto_release();
+#ifndef CONFIG_RTNET_ETH1394
+err_out7:
+    rtnet_chrdev_release();
+    rt_packet_proto_release();
+#endif
 
 err_out6:
     rt_inet_proto_release();
@@ -266,8 +269,10 @@ err_out1:
  */
 void rtnet_release(void)
 {
-    //~ rtpc_cleanup();
-
+#ifndef CONFIG_RTNET_ETH1394	
+    rtpc_cleanup();
+#endif
+	
     rtnet_chrdev_release();
 
     rt_stack_mgr_delete(&STACK_manager);
