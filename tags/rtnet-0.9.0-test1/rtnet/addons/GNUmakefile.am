@@ -1,0 +1,13 @@
+OPTDIRS =
+
+if CONFIG_RTNET_ADDON_RTCAP
+OPTDIRS += rtcap
+endif
+
+if CONFIG_RTNET_ADDON_PROXY
+OPTDIRS += rtnetproxy
+endif
+
+SUBDIRS = $(OPTDIRS)
+
+EXTRA_DIST = Kconfig

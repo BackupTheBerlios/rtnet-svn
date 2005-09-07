@@ -1,0 +1,247 @@
+This list was created when porting the pcnet32 driver to RTnet. It is
+absolutely unsorted. Some points may not apply to every driver, some may have
+to be added for others. It is recommended to take a look at pcnet32-rt.c if a
+step remains unclear.
+
+IMPORTANT: Check if the critical paths of the driver (xmit function, interrupt
+handler) are free of any unbounded or unacceptable long delays, e.g. caused by
+waiting on hardware events.
+
+
+1. Add to beginning of file (also add a #define for MAX_UNITS if it is missing
+   so far):
+
+    #include <rtnet_port.h>
+
+    static int cards[MAX_UNITS] = { [0 ... (MAX_UNITS-1)] = 1 };
+    MODULE_PARM(cards, "1-" __MODULE_STRING(MAX_UNITS) "i");
+    MODULE_PARM_DESC(cards, "array of cards to be supported (e.g. 1,0,1)");
+
+
+2. disable any copybreak mechanism (rtskbs are all equally sized)
+
+
+3. add the following fields to private data:
+
+    struct rtskb_queue skb_pool;
+    rtos_irq_t irq_handle;
+
+
+4. initialize skb pool in probe or init function:
+
+    if (rtskb_pool_init(&<priv>->skb_pool, RX_RING_SIZE*2) < RX_RING_SIZE*2) {
+        rtskb_pool_release(&<priv>->skb_pool);
+        <cleanup>...
+        return -ENOMEM;
+    }
+
+
+5. free skb pool in cleanup function
+
+
+6. replace unregister_netdev with rt_unregister_rtnetdev
+
+
+7. call rt_rtdev_disconnect in cleanup function (and on error cleanups!)
+
+
+8. cleanup device structure with rtdev_free
+
+
+9. replace netif_stop_queue with rtnetif_stop_queue
+
+
+10. add to the close function replacing the free_irq call:
+
+    if ( (i=rtos_irq_free(&<priv>->irq_handle))<0 )
+        return i;
+
+    rt_stack_disconnect(dev);
+
+
+11. replace struct sk_buff with struct rtskb
+
+
+12. replace skb_XXX calls with rtskb_XXX
+
+
+13. replace eth_type_trans with rt_eth_type_trans
+
+
+14. replace netif_rx with rtnetif_rx
+
+
+15. replace struct net_device with struct rtnet_device
+
+
+16. replace netif_start_queue with rtnetif_start_queue
+
+
+17. revise the xmit routine
+
+17.1. add new locking scheme replacing any standard spin lock calls:
+
+      /* if operation may take several microseconds: */
+
+      rtos_irq_disable(&<priv>->irq_handle);
+      rtos_spin_lock(&<priv>->lock);
+      ...
+      rtos_spin_unlock(&<priv>->lock);
+      rtos_irq_enable(&<priv>->irq_handle);
+
+      /* if only a few operations are required: */
+
+      unsigned long flags;
+      ...
+      rtos_spin_lock_irqsave(&<priv>->lock, flags);
+      ...
+      rtos_spin_unlock_irqrestore(&<priv>->lock, flags);
+
+17.2. add the following code right before the code which triggers the physical
+      transmission (take care if data has to be transfered manually, i.e.
+      without DMA):
+
+      /* get and patch time stamp just before the transmission */
+      if (skb->xmit_stamp)
+          *skb->xmit_stamp = cpu_to_be64(rtos_get_time() + *skb->xmit_stamp);
+
+17.3. make the code above and the transmission triggering atomical by switching
+      off all interrupts:
+
+      unsigned long flags;
+      ...
+      rtos_local_irqsave(flags);
+      <patch time stamp>
+      <trigger transmission>
+      rtos_local_irqrestore(flags);
+
+      /* or combined with the spinlock: */
+
+      rtos_spin_lock_irqsave(&<priv>->lock, flags);
+      <prepare transmission>
+      <patch time stamp>
+      <trigger transmission>
+      rtos_spin_unlock_irqrestore(&<priv>->lock, flags);
+
+      NOTE: Some hardware may require the driver to calculate the frame
+      checksum, thus making a patching of the frame effectively impossible. In
+      this case use the following strategy: switch off the interrupts only if
+      there is actually a time stamp to patch. Normally, frames using this
+      feature are rather short and will not cause long irq locks. Take a look
+      at 8139too-rt or via-rhine-rt to find some examples.
+
+
+18. modify interrupt handler:
+
+    static RTOS_IRQ_HANDLER_PROTO(XXX_interrupt)
+    {
+        struct rtnet_device *dev = RTOS_IRQ_GET_ARG(struct rtnet_device);
+        ...
+
+    Also adapt the prototype of the interrupt handler accordingly if provided.
+
+
+19. replace spin_[un]lock with rtos_spin_[un]lock within the interrupt handler
+
+
+20. replace printk in xmit function, interrupt handler, and any function called
+    within this context with rtos_print
+
+
+21. replace dev_kfree_skb[_XXX] with dev_kfree_rtskb
+
+
+22. replace alloc_etherdev with the following lines:
+
+    dev = rt_alloc_etherdev(sizeof(struct XXX_private) /* or 0 */);
+    if (dev == NULL)
+        return -ENOMEM;
+    rtdev_alloc_name(dev, "rteth%d");
+    rt_rtdev_connect(dev, &RTDEV_manager);
+    RTNET_SET_MODULE_OWNER(dev);
+    dev->vers = RTDEV_VERS_2_0;
+
+
+23. replace request_irq in open function with the following lines:
+
+    rt_stack_connect(dev, &STACK_manager);
+    retval = rtos_irq_request(&<priv>->irq_handle, dev->irq, XXX_interrupt, dev);
+    if (retval)
+        return retval;
+
+
+24. replace netif_queue_stopped with rtnetif_queue_stopped
+
+
+25. replace netif_wake_queue with rtnetif_wake_queue
+
+
+26. add to the beginning of the probe or card-init function:
+
+    static int cards_found = -1;
+
+    cards_found++;
+    if (cards[cards_found] == 0)
+        return -ENODEV;
+
+
+27. call rtos_get_time within receive interrupt and set time_stamp field of skb accordingly
+
+
+28. add the following line to the open function (as soon as the IRQ is allowed to occur):
+
+    rtos_irq_enable(&<priv>->irq_handle);
+
+
+29. initialize new unsigned int old_packet_cnt with <priv>->stats.rx_packets at
+    the beginning of the interrupt handler
+
+
+30. add to the end of the interrupt handler:
+
+    rtos_irq_end(irq);
+    rtos_spin_unlock(&<priv>->lock); /* if locking is not done in interrupt main function */
+    if (old_packet_cnt != <priv>->stats.rx_packets)
+        rt_mark_stack_mgr(dev);
+
+
+31. disable any timer setup and delete calls
+
+
+32. uncomment un-required(!) MII related assignments and functions
+
+
+33. uncomment any other unused functions
+
+
+34. replace register_netdev with rt_register_rtnetdev
+
+
+35. replace netif_carrier_{on|off} with rtnetif_carrier_{on|off}
+
+
+36. replace dev_alloc_skb(size) with dev_alloc_rtskb(size, &<priv>->skb_pool)
+
+
+37. reduce RX_RING_SIZE to 8
+
+
+38. replace MOD_INC_USE_COUNT/MOD_DEC_USE_COUNT with RTNET_MOD_INC_USE_COUNT/RTNET_MOD_DEC_USE_COUNT
+    and check if they are used appropriately
+
+
+39. rename type of lock field in private data from spinlock_t to rtos_spinlock_t
+
+
+40. replace spin_lock_init(&<priv>->lock) with rtos_spin_lock_init(&<priv>->lock)
+
+
+41. rtskb structure does not contain a data_len field => set any occurrence to zero
+
+
+42. return from interrupt handler only by using either RTOS_IRQ_RETURN_HANDLED or
+    RTOS_IRQ_RETURN_UNHANDLED dependent on if the IRQ was handled or not
+
+
+XX. check the critical paths in xmit function and interrupt handler for delays
+    or hardware wait loops, disable or avoid them

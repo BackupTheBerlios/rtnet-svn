@@ -1,0 +1,56 @@
+moduledir = $(DESTDIR)@RTNET_MODULE_DIR@
+modext = @RTNET_MODULE_EXT@
+
+EXTRA_LIBRARIES = libkernel_rtmac.a
+
+OPTDIRS =
+
+if CONFIG_RTNET_NOMAC
+OPTDIRS += nomac
+endif
+
+if CONFIG_RTNET_TDMA
+OPTDIRS += tdma
+endif
+
+SUBDIRS = . $(OPTDIRS)
+
+libkernel_rtmac_a_CPPFLAGS = \
+	-I$(top_srcdir)/stack/include \
+	-I$(top_builddir)/stack/include \
+	@RTAI_KMOD_CFLAGS@
+
+libkernel_rtmac_a_SOURCES = \
+	rtmac_disc.c \
+	rtmac_module.c \
+	rtmac_proc.c \
+	rtmac_proto.c \
+	rtmac_syms.c \
+	rtmac_vnic.c
+
+OBJS = rtmac$(modext)
+
+rtmac.o: libkernel_rtmac.a
+	$(LD) --whole-archive $< -r -o $@
+
+rtmac.ko: @RTNET_KBUILD_ENV@
+rtmac.ko: $(libkernel_rtmac_a_SOURCES) FORCE
+	@RTNET_KBUILD_CMD@
+
+all-local: $(OBJS)
+
+install-exec-local: $(OBJS)
+	$(mkinstalldirs) $(moduledir)
+	$(INSTALL_DATA) $^ $(moduledir)
+
+clean-local: $(libkernel_rtmac_a_SOURCES)
+	@RTNET_KBUILD_CLEAN@
+
+distclean-local:
+	@RTNET_KBUILD_DISTCLEAN@
+
+EXTRA_DIST = Makefile.kbuild Kconfig
+
+DISTCLEANFILES = Makefile
+
+.PHONY: FORCE

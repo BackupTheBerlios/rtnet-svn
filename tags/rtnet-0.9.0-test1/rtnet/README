@@ -1,0 +1,104 @@
+                             RTnet Version 0.9.0
+                             ===================
+
+What is it?
+-----------
+RTnet is real-time network protocol stack for RTAI (hard real-time Linux
+extension). It provides a standard socket API to be used with RTAI kernel
+modules and real-time user space processes.
+
+
+What are the requirements?
+--------------------------
+- Linux kernel 2.6.x: 2.6.10 or better
+  (Linux kernel 2.4.x: broken, yet unclear if it will get fixed anymore)
+- RTAI/fusion 0.9 or better
+  RTAI/classic 3.3 or better
+- x86, PowerPC, or ARM platform
+  (other platforms are lacking up-to-date RTAI support)
+- RealTek 8139, Intel 8255x (EtherExpress Pro 100), DEC 21x4x-based (tulip),
+  AMD PCnet32/PCnetPCI, VIA Rhine, NatSemi DP8381x, RTL8169 network adapter,
+  MPC8260 FCC, MPC8xx SCC/FEC, or MPC5200 on-chip controllers, SMSC LAN91C111
+  embedded controller
+
+
+How to install it?
+------------------
+1. Install and test a suitable RTAI version (see www.rtai.org)
+2. cd to a preferred directory (e.g. /usr/src)
+3. tar xvjf <PATH-TO-RTNET-ARCHIVE>/rtnet-X.X.X.tar.bz2
+4. cd rtnet
+5. make menuconfig (run "make help" for further information)
+   Set at least the RTAI installation path and the path RTnet is to be
+   installed to (called <PREFIX> from now on). You could also check other
+   options if they fit your requirements. Help is available for each feature.
+6. make
+7. make install
+   This will create the directories <PREFIX>/sbin with all configuration tools,
+   <PREFIX>/modules containing all core modules, <PREFIX>/include with the
+   required API header files, and <PREFIX>/etc with configuration files to be
+   used with the rtnet startup script.
+8. run "mknod /dev/rtnet c 10 240" on your target system to create the
+   configuration interface device node.
+
+
+How to test it?
+---------------
+1. Shutdown the network device which shall become part of the RT-network and
+   remove its driver module (this also means that it must not be compiled
+   into the kernel!)
+2. Load required RTAI modules (fusion: rtai_hal, rtai_nucleus, rtai_rtdm,
+   classic: rtai_hal, rtai_ksched/rtai_lxrtm, rtai_sem, rtai_rtdm)
+3. Load the driver layer module rtai_rtdm (currently, this comes with RTnet,
+   see <PREFIX>/modules directory)
+4. Check <PREFIX>/etc/rtnet.conf and adapt at least the following parameters:
+   RT_DRIVER, IPADDR, TDMA_MODE, TDMA_SLAVES.
+5. Run <PREFIX>/sbin/rtnet start
+6. Run rtping <remote-host> or load an application module
+   (like addons/examples/round_trip_time/run)
+
+
+Special notes
+-------------
+- When running RTnet on ARM using a 2.4 kernel, you have to add the following
+  line to linux/arch/arm/kernel/armksyms.c:
+
+  EXPORT_SYMBOL(__arch_strncpy_from_user);
+
+  Otherwise, rtai_rtdm will refuse to load. Don't forget to recompile and
+  install the modified kernel.
+
+
+Contributors
+------------
+Ulrich Marx                             - core programming
+<marx-at-fet.uni-hannover.de>
+Nathan Gustavson                        - testing and bug fixing
+Marc Kleine-Budde                       - RTmac, testing, bug fixing, autotools
+<kleine-budde-at-gmx.de>
+Jan Kiszka <jan.kiszka-at-web.de>       - project management, core programming
+Wittawat Yamwong <wittawat-at-web.de>   - testing, documents
+Hans-Peter Bock <rtnet-at-avaapgh.de>   - testing, bug fixing, rtdm-select
+Mathias Koehrer                         - 3c59x-rt, rtnetproxy, testing,
+<mathias_koehrer-at-yahoo.de>             bug fixing, ip fragmentation
+Vinay Sridhara                          - ICMP support
+<vinaysridhara-at-yahoo.com>
+Erwin Rol <erwin-at-muffin.org>         - Ethereal plugin, rtnetproxy
+Wolfgang Grandegger                     - MPC drivers
+<wg-at-denx.de>
+Erik Buit                               - NatSemi driver
+<e.buit-at-student.utwente.nl>
+Yuchen Zhang                            - Ethernet-over-FireWire support
+<yuchen623-at-gmail.com>
+Klaus Keppler                           - RTL8169 gigabit driver
+<klaus.keppler-at-informatik.stud.uni-erlangen.de>
+
+Acknowledgements:
+David Schleef                           - he wrote the original RTnet, some
+                                          parts of this version are based on
+                                          his code
+
+
+RTnet is free software, and you are welcome to redistribute it under
+the terms of the GNU General Public License. This program comes with
+ABSOLUTELY NO WARRANTY. See "COPYING" for details.

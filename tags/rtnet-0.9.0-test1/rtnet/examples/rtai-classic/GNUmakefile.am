@@ -1,0 +1,14 @@
+noinst_PROGRAMS = \
+	rtnet_ifs \
+	simpleclient \
+	simpleserver
+
+AM_CFLAGS = \
+	-I$(top_srcdir)/stack/include \
+	-I$(top_builddir)/stack/include \
+        @RTAI_USER_CFLAGS@
+
+all-local: \
+	rtnet_ifs \
+	simpleclient \
+	simpleserver
