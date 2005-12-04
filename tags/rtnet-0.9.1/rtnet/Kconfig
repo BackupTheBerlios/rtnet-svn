@@ -1,0 +1,62 @@
+config RTNET_VERSION
+    string
+    default "0.9.1"
+
+mainmenu "RTnet Configuration"
+
+comment "Real-Time Extension"
+
+choice
+    prompt "Variant"
+    default RTNET_RTEXT_INKERNEL
+
+config RTNET_RTEXT_CLASSIC
+    bool "RTAI 3.3 or better, Xenomain 2.0.x"
+
+config RTNET_RTEXT_INKERNEL
+    bool "Xenomai 2.1 or better"
+
+endchoice
+
+config RTNET_RTEXT_DIR
+    string "Real-Time Extension Installation Path"
+    default "/usr/realtime"
+    depends RTNET_RTEXT_CLASSIC
+    ---help---
+    Path to an installed version of the real-time Linux extension.
+    Xenomai and RTAI are supported. Do not confuse with the source
+    code directory of the extension.
+
+config RTNET_LINUX_DIR
+    string "Real-Time Extended Linux Kernel"
+    default "/lib/modules/`uname -r`/build"
+    depends RTNET_RTEXT_INKERNEL
+    ---help---
+    Path to a Linux kernel source tree which has been extended by
+    Xenomai with a real-time subsystem. Since Xenomai 2.1 (or better)
+    strictly separates the kernelspace from the userspace source tree,
+    there is no longer a direct link between the CONFIG_RTNET_RTEXT_DIR
+    and CONFIG_RTNET_LINUX_DIR.
+
+comment "RTnet Parameters"
+
+config RTNET_INSTALLDIR
+    string "Installation Path of RTnet"
+    default "/usr/local/rtnet"
+    ---help---
+    Destination path where RTnet's binaries, configuration files, and
+    headers shall be installed.
+
+config RTNET_CHECKED
+    bool "Internal Bug Checks"
+    default n
+    ---help---
+    Switch on if you face crashes when RTnet is running or if you suspect
+    any other RTnet-related issues. This feature will add a few sanity
+    checks at critical points that will produce warnings on the kernel
+    console in case certain internal bugs are detected.
+
+source "stack/Kconfig"
+source "drivers/Kconfig"
+source "addons/Kconfig"
+source "examples/Kconfig"
