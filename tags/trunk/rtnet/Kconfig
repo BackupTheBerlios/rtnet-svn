@@ -1,0 +1,34 @@
+config RTNET_VERSION
+    string
+    default "0.9.0"
+
+mainmenu "RTnet configuration"
+
+config RTNET_RTEXT_DIR
+    string "Real-time Extension Installation Path"
+    default "/usr/realtime"
+    ---help---
+    Path to an installed version of the real-time Linux extension.
+    Xenomai and RTAI are supported (NOTE: RTAI is currently broken).
+    Do not confuse with the source code directory of the extension.
+
+config RTNET_INSTALLDIR
+    string "Installation Path of RTnet"
+    default "/usr/local/rtnet"
+    ---help---
+    Destination path where RTnet's binaries, configuration files, and
+    headers shall be installed.
+
+config RTNET_CHECKED
+    bool "Internal Bug Checks"
+    default n
+    ---help---
+    Switch on if you face crashes when RTnet is running or if you suspect
+    any other RTnet-related issues. This feature will add a few sanity
+    checks at critical points that will produce warnings on the kernel
+    console in case certain internal bugs are detected.
+
+source "stack/Kconfig"
+source "drivers/Kconfig"
+source "addons/Kconfig"
+source "examples/Kconfig"
