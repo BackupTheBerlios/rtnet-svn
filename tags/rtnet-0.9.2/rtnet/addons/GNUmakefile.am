@@ -1,0 +1,63 @@
+moduledir = $(DESTDIR)$(RTNET_MODULE_DIR)
+modext = $(RTNET_MODULE_EXT)
+
+EXTRA_LIBRARIES = \
+	libkernel_rtnetproxy.a \
+	libkernel_rtcap.a
+
+libkernel_rtcap_a_CPPFLAGS = \
+	$(RTEXT_KMOD_CFLAGS) \
+	-I$(top_srcdir)/stack/include \
+	-I$(top_builddir)/stack/include
+
+libkernel_rtcap_a_SOURCES = \
+	rtcap.c
+
+libkernel_rtnetproxy_a_CPPFLAGS = \
+	$(RTEXT_KMOD_CFLAGS) \
+	-I$(top_srcdir)/stack/include \
+	-I$(top_builddir)/stack/include
+
+libkernel_rtnetproxy_a_SOURCES = \
+	rtnetproxy.c
+
+OBJS =
+
+if CONFIG_RTNET_ADDON_RTCAP
+OBJS += rtcap$(modext)
+endif
+
+if CONFIG_RTNET_ADDON_PROXY
+OBJS += rtnetproxy$(modext)
+endif
+
+rtcap.o: libkernel_rtcap.a
+	$(LD) --whole-archive $< -r -o $@
+
+rtnetproxy.o: libkernel_rtnetproxy.a
+	$(LD) --whole-archive $< -r -o $@
+
+all-local: all-local$(modext)
+
+# 2.4 build
+all-local.o: $(OBJS)
+
+# 2.6 build
+all-local.ko: $(libkernel_rtcap_a_SOURCES) $(libkernel_rtnetproxy_a_SOURCES) FORCE
+	$(RTNET_KBUILD_CMD)
+
+install-exec-local: $(OBJS)
+	$(mkinstalldirs) $(moduledir)
+	if test "$^" \!= ""; then $(INSTALL_DATA) $^ $(moduledir); fi
+
+clean-local: $(ibkernel_rtcap_a_SOURCES) $(libkernel_rtnetproxy_a_SOURCES)
+	$(RTNET_KBUILD_CLEAN)
+
+distclean-local:
+	$(RTNET_KBUILD_DISTCLEAN)
+
+EXTRA_DIST = Kconfig Makefile.kbuild
+
+DISTCLEANFILES = Makefile
+
+.PHONY: FORCE
