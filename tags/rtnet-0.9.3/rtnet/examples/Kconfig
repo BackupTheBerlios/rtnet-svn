@@ -1,0 +1,21 @@
+menu "Examples"
+
+config RTNET_EXAMPLES
+    bool "RTnet Application Examples"
+    default n
+    ---help---
+    Compile various example applications for RTnet, depending on the RTAI
+    version you are building for. Note that these examples will not be
+    installed to the RTnet destination folder, the binaries will remain in
+    the build tree.
+
+config RTNET_RTEXT_CONFIG_PATH
+    string "Real-time Extension Config-Tool Path"
+    default ""
+    depends RTNET_RTEXT_INKERNEL && RTNET_EXAMPLES
+    ---help---
+    Path to the configuration tool of the installed real-time Linux
+    extension. This is only required if the configuration tool is not
+    reachable via standard $PATH.
+
+endmenu

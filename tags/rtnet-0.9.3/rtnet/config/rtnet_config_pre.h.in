@@ -1,0 +1,149 @@
+/* config/rtnet_config_pre.h.in.  Generated from configure.ac by autoheader.  */
+
+/* we are building for arm */
+#undef CONFIG_ARCH_ARM
+
+/* we are building for x86 */
+#undef CONFIG_ARCH_I386
+
+/* we are building for powerpc */
+#undef CONFIG_ARCH_PPC
+
+/* We build for RTAI 3.x */
+#undef CONFIG_RTAI_3x
+
+/* rtnetproxy support */
+#undef CONFIG_RTNET_ADDON_PROXY
+
+/* RTcap support */
+#undef CONFIG_RTNET_ADDON_RTCAP
+
+/* Build system alias */
+#undef CONFIG_RTNET_BUILD_STRING
+
+/* Bug checks */
+#undef CONFIG_RTNET_CHECKED
+
+/* Compiler */
+#undef CONFIG_RTNET_COMPILER
+
+/* EEPRO/100 command timeout */
+#undef CONFIG_RTNET_DRV_EEPRO100_CMDTIMEOUT
+
+/* EEPRO/100 debugging */
+#undef CONFIG_RTNET_DRV_EEPRO100_DBG
+
+/* Host system alias */
+#undef CONFIG_RTNET_HOST_STRING
+
+/* RTAI LXRT */
+#undef CONFIG_RTNET_LXRT
+
+/* RTcfg debug */
+#undef CONFIG_RTNET_RTCFG_DEBUG
+
+/* Real-Time IPv4 support */
+#undef CONFIG_RTNET_RTIPV4
+
+/* Network routing */
+#undef CONFIG_RTNET_RTIPV4_NETROUTING
+
+/* Router */
+#undef CONFIG_RTNET_RTIPV4_ROUTER
+
+/* Source IP routing */
+#undef CONFIG_RTNET_RTIPV4_ROUTE_SRC
+
+/* Real-Time WLAN support */
+#undef CONFIG_RTNET_RTWLAN
+
+/* RX-FIFO size */
+#undef CONFIG_RTNET_RX_FIFO_SIZE
+
+/* TDMA master support */
+#undef CONFIG_RTNET_TDMA_MASTER
+
+#ifdef __IN_RTNET__
+
+/* We build for Xenomai 2.x */
+#undef CONFIG_XENO_2_0x
+
+/* We build for Xenomai 2.x */
+#undef CONFIG_XENO_2_1x
+
+/* Define to 1 if you have the <dlfcn.h> header file. */
+#undef HAVE_DLFCN_H
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#undef HAVE_INTTYPES_H
+
+/* Define to 1 if you have the `ncurses' library (-lncurses). */
+#undef HAVE_LIBNCURSES
+
+/* Define to 1 if you have the <memory.h> header file. */
+#undef HAVE_MEMORY_H
+
+/* Define to 1 if you have the <rtai_fifos.h> header file. */
+#undef HAVE_RTAI_FIFOS_H
+
+/* Define to 1 if you have the <rtai_malloc.h> header file. */
+#undef HAVE_RTAI_MALLOC_H
+
+/* Define to 1 if you have the <rtai_sem.h> header file. */
+#undef HAVE_RTAI_SEM_H
+
+/* Define to 1 if you have the <rtdm/rtdm_driver.h> header file. */
+#undef HAVE_RTDM_RTDM_DRIVER_H
+
+/* Define to 1 if you have the <rtdm/rtdm.h> header file. */
+#undef HAVE_RTDM_RTDM_H
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#undef HAVE_STDLIB_H
+
+/* Define to 1 if you have the <strings.h> header file. */
+#undef HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#undef HAVE_STRING_H
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Name of package */
+#undef PACKAGE
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* RTDM Driver Version */
+#undef RTNET_RTDM_VER
+
+/* Define to 1 if you have the ANSI C header files. */
+#undef STDC_HEADERS
+
+/* Version number of package */
+#undef VERSION
+
+#endif /* __IN_RTNET__ */
